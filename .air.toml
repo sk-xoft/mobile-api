@@ -1,0 +1,25 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/smart-seaman-mobile-api"
+  cmd = "go build -o ./tmp/smart-seaman-mobile-api ./cmd/api"
+  delay = 1000
+  exclude_dir = ["tmp", "vendor", ".git"]
+  exclude_regex = ["_test\\.go$"]
+  include_ext = ["go", "env"]
+  kill_delay = "500ms"
+  log = "build-errors.log"
+  send_interrupt = true
+  stop_on_error = true
+
+[log]
+  time = true
+
+[screen]
+  clear_on_rebuild = true
+
+[color]
+  app = "green"
+  build = "yellow"
+  watcher = "cyan"

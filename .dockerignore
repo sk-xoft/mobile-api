@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+tmp
+coverage
+*.log
+Dockerfile*
+README.md
+MIGRATION.md
+**/*_test.go
