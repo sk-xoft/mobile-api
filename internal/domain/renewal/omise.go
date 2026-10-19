@@ -42,7 +42,15 @@ func newOmiseClient(qrExpire ...time.Duration) *omiseClient {
 	if len(qrExpire) > 0 && qrExpire[0] > 0 {
 		expire = qrExpire[0]
 	}
-	return &omiseClient{baseURL: strings.TrimRight(envOr("OMISE_API_URL", "https://api.omise.co"), "/"), secretKey: os.Getenv("OMISE_SECRET_KEY"), webhookSecret: os.Getenv("OMISE_WEBHOOK_SECRET"), httpClient: &http.Client{Timeout: 20 * time.Second}, qrExpire: expire}
+	return &omiseClient{
+		baseURL:       strings.TrimRight(envOr("OMISE_API_URL", "https://api.omise.co"), "/"),
+		secretKey:     os.Getenv("OMISE_SECRET_KEY"),
+		webhookSecret: os.Getenv("OMISE_WEBHOOK_SECRET"),
+		httpClient: &http.Client{
+			Timeout: 20 * time.Second,
+		},
+		qrExpire: expire,
+	}
 }
 
 func NewOmiseClient(qrExpire ...time.Duration) *omiseClient { return newOmiseClient(qrExpire...) }
@@ -131,7 +139,21 @@ func (c *omiseClient) request(method, path string, form url.Values, idempotency 
 			return omiseCharge{}, fmt.Errorf("parse omise expires_at: %w", e)
 		}
 	}
-	return omiseCharge{ID: payload.ID, Status: payload.Status, SourceID: payload.Source.ID, TransactionID: payload.Transaction.ID, AuthorizeURI: payload.AuthorizeURI, ReturnURI: payload.ReturnURI, FailureCode: payload.FailureCode, FailureMessage: payload.FailureMessage, QRCodeURI: payload.Source.ScannableCode.Image.DownloadURI, ExpiresAt: expiresAt, Livemode: payload.Livemode, Raw: string(raw)}, nil
+	return omiseCharge{
+			ID:             payload.ID,
+			Status:         payload.Status,
+			SourceID:       payload.Source.ID,
+			TransactionID:  payload.Transaction.ID,
+			AuthorizeURI:   payload.AuthorizeURI,
+			ReturnURI:      payload.ReturnURI,
+			FailureCode:    payload.FailureCode,
+			FailureMessage: payload.FailureMessage,
+			QRCodeURI:      payload.Source.ScannableCode.Image.DownloadURI,
+			ExpiresAt:      expiresAt,
+			Livemode:       payload.Livemode,
+			Raw:            string(raw),
+		},
+		nil
 }
 func (c *omiseClient) VerifySignature(raw, signature, timestamp string) bool {
 	if c.webhookSecret == "" {

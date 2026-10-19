@@ -105,9 +105,26 @@ func (h *Handler) success(c *fiber.Ctx, data any) error {
 }
 
 func (h *Handler) fail(c *fiber.Ctx, err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return httpx.Error(c, fiber.StatusBadRequest, "MA00007", "Invalid or expired credential")
+	}
 	var business *BusinessError
 	if errors.As(err, &business) {
 		return httpx.Error(c, fiber.StatusBadRequest, business.Code, h.messages.Message(c.UserContext(), business.Code, c.Get("Accept-Language")))
 	}
 	return httpx.Error(c, fiber.StatusInternalServerError, "MA00013", h.messages.Message(c.UserContext(), "MA00013", c.Get("Accept-Language")))
+}
+
+func (h *Handler) ActivateBody(c *fiber.Ctx) error {
+	var request struct {
+		UID string `json:"uid"`
+	}
+	if err := c.BodyParser(&request); err != nil || request.UID == "" {
+		return h.fail(c, &BusinessError{Code: "MA00005", Detail: "uid"})
+	}
+	response, err := h.service.Activate(c.UserContext(), request.UID)
+	if err != nil {
+		return h.fail(c, err)
+	}
+	return h.success(c, response)
 }

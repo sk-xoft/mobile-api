@@ -37,7 +37,7 @@ func registerPublic(router fiber.Router, authHandler *auth.Handler, profileHandl
 	router.Get("/activate-user", authHandler.Activate)
 	router.Post("/reset-password", authHandler.RequestPasswordReset)
 	router.Post("/activate-forgot-password", authHandler.CompletePasswordReset)
-	router.Post("/profile/active", profileHandler.Activate)
+	router.Post("/profile/active", authHandler.ActivateBody)
 	router.Get("/master", masterHandler.List)
 }
 
@@ -72,6 +72,7 @@ func registerProtected(router fiber.Router, authMiddleware fiber.Handler, authHa
 	secured.Get("/document-renewals/:requestNo/stage", renewalHandler.Stage)
 	secured.Get("/document-renewals/:requestNo", renewalHandler.Detail)
 	secured.Post("/document-renewals/:requestId/payments", renewalHandler.Payment)
+	secured.Get("/document-renewals/:requestId/payments", renewalHandler.CurrentPayment)
 	secured.Get("/document-renewals/:requestId/payments/:transactionId", renewalHandler.PaymentStatus)
 	secured.Get("/forms", contentHandler.Forms)
 	secured.Get("/form", contentHandler.FormFile)

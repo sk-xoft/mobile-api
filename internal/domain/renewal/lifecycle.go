@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	payments "github.com/smartseaman/mobile-api/internal/domain/payment"
 	"strings"
 	"time"
 
@@ -18,12 +19,7 @@ type CreateRequest struct {
 type MobileRequest struct {
 	MobileNumber string `json:"mobileNumber"`
 }
-type PaymentRequest struct {
-	PaymentMethod  string `json:"paymentMethod"`
-	IdempotencyKey string `json:"idempotencyKey"`
-	ReturnURI      string `json:"returnUri"`
-	PlatformType   string `json:"platformType"`
-}
+type PaymentRequest = payments.Input
 type CreateResponse struct {
 	RequestID         string  `json:"requestId"`
 	RequestNo         string  `json:"requestNo"`
@@ -131,41 +127,54 @@ type Timeline struct {
 	Items     []TimelineItem `json:"items"`
 }
 type Stage struct {
-	Code    string `json:"code"`
-	Name    string `json:"name"`
-	Step    int    `json:"step"`
-	Current bool   `json:"current"`
+	Step                     int    `json:"step"`
+	DocumentMobileStatusCode string `json:"documentMobileStatusCode"`
+	NameTh                   string `json:"nameTh"`
+	NameEn                   string `json:"nameEn"`
+	State                    string `json:"state"`
+}
+type StageMobileStatus struct {
+	DocumentMobileStatusCode string `json:"documentMobileStatusCode"`
+	NameTh                   string `json:"nameTh"`
+	NameEn                   string `json:"nameEn"`
+	Step                     int    `json:"step"`
+}
+type StageCurrentStatus struct {
+	ID                 string             `json:"id"`
+	DocumentStatusCode string             `json:"documentStatusCode"`
+	NameTh             string             `json:"nameTh"`
+	NameEn             string             `json:"nameEn"`
+	CSSColor           string             `json:"cssColor"`
+	Step               *int               `json:"step"`
+	MobileStatus       *StageMobileStatus `json:"mobileStatus"`
 }
 type StageResponse struct {
-	RequestNo     string  `json:"requestNo"`
-	CurrentStatus string  `json:"currentStatus"`
-	Stages        []Stage `json:"stages"`
+	RequestNo     string             `json:"requestNo"`
+	CurrentStatus StageCurrentStatus `json:"currentStatus"`
+	Stages        []Stage            `json:"stages"`
 }
-type PaymentResponse struct {
-	RequestID        string  `json:"requestId"`
-	RequestNo        string  `json:"requestNo"`
-	TransactionID    string  `json:"transactionId"`
-	TransactionNo    string  `json:"transactionNo"`
-	Status           string  `json:"status"`
-	Channel          string  `json:"channel"`
-	PaymentMethod    string  `json:"paymentMethod"`
-	Amount           float64 `json:"amount"`
-	Currency         string  `json:"currency"`
-	Provider         string  `json:"provider"`
-	ProviderChargeID string  `json:"providerChargeId,omitempty"`
-	AuthorizeURI     string  `json:"authorizeUri,omitempty"`
-	ReturnURI        string  `json:"returnUri,omitempty"`
-	QRCodeURI        string  `json:"qrCodeDownloadUri,omitempty"`
-	ExpiresAt        string  `json:"expiresAt,omitempty"`
-	FailureCode      string  `json:"failureCode,omitempty"`
-	FailureMessage   string  `json:"failureMessage,omitempty"`
-}
+type PaymentResponse = payments.Response
 
 type requestRow struct {
 	ID, No, UserID, Mobile, Email, Code, StatusID, StatusCode, StatusName, IdempotencyKey string
 	Amount                                                                                float64
 	IsResubmit                                                                            bool
 	Submitted                                                                             time.Time
+}
+
+func (r *Repository) stageCurrentStatus(ctx context.Context, requestID string) (StageCurrentStatus, error) {
+	var result StageCurrentStatus
+	var mobileCode, mobileTh, mobileEn sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT s.id,s.document_status_code,COALESCE(s.name_th,''),COALESCE(s.name_en,''),COALESCE(s.css_color,''),COALESCE(s.document_mobile_status_code,''),COALESCE(s.document_mobile_status_name_th,''),COALESCE(s.document_mobile_status_name_en,'') FROM m_document_request r INNER JOIN m_document_status s ON s.id=r.document_status_id WHERE r.id=?`, requestID).
+		Scan(&result.ID, &result.DocumentStatusCode, &result.NameTh, &result.NameEn, &result.CSSColor, &mobileCode, &mobileTh, &mobileEn)
+	if err != nil {
+		return StageCurrentStatus{}, err
+	}
+	if step := progress(mobileCode.String); step > 0 {
+		result.Step = &step
+		result.MobileStatus = &StageMobileStatus{DocumentMobileStatusCode: mobileCode.String, NameTh: mobileTh.String, NameEn: mobileEn.String, Step: step}
+	}
+	return result, nil
 }
 
 func (r *Repository) ownedRequest(ctx context.Context, userID, key, value string) (requestRow, error) {
@@ -189,6 +198,7 @@ func (r *Repository) statusID(ctx context.Context, code string) (string, error) 
 	e := r.db.QueryRowContext(ctx, "SELECT id FROM m_document_status WHERE document_status_code=? AND is_active='YES' LIMIT 1", code).Scan(&id)
 	return id, e
 }
+
 func (r *Repository) create(ctx context.Context, userID string, req CreateRequest, price Price) (CreateResponse, error) {
 	var mobile, email string
 	if e := r.db.QueryRowContext(ctx, "SELECT MOBILE_NUMBER,EMAIL FROM m_mobile_users WHERE MOBILE_UUID=?", userID).Scan(&mobile, &email); e != nil {
@@ -240,6 +250,10 @@ func (r *Repository) validateResponse(ctx context.Context, row requestRow, code,
 	if err != nil {
 		return ValidateResponse{}, err
 	}
+	return r.validateResponseWithDocument(ctx, row, code, idempotency, name, nameTh, nameEn)
+}
+
+func (r *Repository) validateResponseWithDocument(ctx context.Context, row requestRow, code, idempotency, name, nameTh, nameEn string) (ValidateResponse, error) {
 	if idempotency == "" {
 		idempotency = row.IdempotencyKey
 	}
@@ -262,7 +276,11 @@ func (r *Repository) validateResponse(ctx context.Context, row requestRow, code,
 		}
 		response.Address = append(response.Address, a)
 	}
+	addressErr := addressRows.Err()
 	addressRows.Close()
+	if addressErr != nil {
+		return ValidateResponse{}, addressErr
+	}
 	items, err := r.db.QueryContext(ctx, `SELECT i.id,COALESCE(p.id,''),m.document_master_items_code,m.storage_scope,COALESCE(p.document_type,''),COALESCE(m.document_master_items_name,''),m.sort_order,CASE WHEN COALESCE(p.file_uploaded,0)=1 THEN 1 ELSE 0 END,CASE WHEN COALESCE(p.file_uploaded,0)=1 THEN 'COMPLETE' WHEN p.id IS NULL AND m.storage_scope='PROFILE' THEN 'MISSING' ELSE 'INCOMPLETE' END,COALESCE(p.file_path,''),COALESCE(DATE_FORMAT(p.file_uploaded_at,'%Y-%m-%dT%H:%i:%sZ'),''),COALESCE(p.check_result,''),COALESCE(p.check_note,'') FROM m_document_request_items i INNER JOIN m_document_master_request_item m ON m.document_master_items_code=i.document_master_request_item_code LEFT JOIN m_document_profile_request_item p ON p.id=(SELECT MIN(p2.id) FROM m_document_profile_request_item p2 WHERE p2.mobile_user_uuid=? AND p2.document_master_request_item_code=i.document_master_request_item_code) WHERE i.request_id=? ORDER BY m.sort_order,i.id`, row.UserID, row.ID)
 	if err != nil {
 		return ValidateResponse{}, err
@@ -274,12 +292,26 @@ func (r *Repository) validateResponse(ctx context.Context, row requestRow, code,
 			return ValidateResponse{}, err
 		}
 		item.DocumentCode = code
-		item.Files, err = r.validateFiles(ctx, row, item.ItemCode, item.StorageScope)
-		if err != nil {
-			items.Close()
-			return ValidateResponse{}, err
-		}
-		item.DocumentStatus = validateItemStatus(item, item.Files)
+		response.Items = append(response.Items, item)
+	}
+	itemsErr := items.Err()
+	items.Close()
+	if itemsErr != nil {
+		return ValidateResponse{}, itemsErr
+	}
+	if len(response.Items) == 0 {
+		return ValidateResponse{}, &BusinessError{Code: "MA00013", Detail: "documentRenewalRequestItems"}
+	}
+	// Release item rows before loading files, so even a one-connection pool works.
+	files, err := r.validateFilesBatch(ctx, row, response.Items)
+	if err != nil {
+		return ValidateResponse{}, err
+	}
+	for index := range response.Items {
+		item := &response.Items[index]
+		item.Files = files[validateFileKey{scope: validateFileScope(item.StorageScope), code: item.ItemCode}]
+
+		item.DocumentStatus = validateItemStatus(*item, item.Files)
 		if item.StorageScope == "REQUEST" {
 			item.FileUploaded = 0
 			if len(item.Files) > 0 {
@@ -291,11 +323,6 @@ func (r *Repository) validateResponse(ctx context.Context, row requestRow, code,
 				item.CheckNote = item.Files[0].CheckNote
 			}
 		}
-		response.Items = append(response.Items, item)
-	}
-	items.Close()
-	if len(response.Items) == 0 {
-		return ValidateResponse{}, &BusinessError{Code: "MA00013", Detail: "documentRenewalRequestItems"}
 	}
 	return response, nil
 }
@@ -339,27 +366,65 @@ func validateItemStatus(item ValidateItem, files []ValidateFile) string {
 	return "INCOMPLETE"
 }
 
-func (r *Repository) validateFiles(ctx context.Context, row requestRow, itemCode, storageScope string) ([]ValidateFile, error) {
-	query := `SELECT id,document_type,slot_code,COALESCE(file_path,''),COALESCE(original_file_name,''),COALESCE(mime_type,''),COALESCE(file_size,0),COALESCE(DATE_FORMAT(file_uploaded_at,'%d/%m/%Y %H:%i'),''),COALESCE(check_result,''),COALESCE(check_note,''),COALESCE(is_updated,0) FROM m_document_profile_request_item WHERE mobile_user_uuid=? AND document_master_request_item_code=? AND file_uploaded=1 ORDER BY file_uploaded_at,id`
-	args := []any{row.UserID, itemCode}
-	if storageScope == "REQUEST" {
-		query = `SELECT f.id,f.document_type,f.slot_code,COALESCE(f.file_path,''),COALESCE(f.original_file_name,''),COALESCE(f.mime_type,''),COALESCE(f.file_size,0),COALESCE(DATE_FORMAT(f.file_uploaded_at,'%d/%m/%Y %H:%i'),''),COALESCE(f.check_result,''),COALESCE(f.check_note,''),COALESCE(f.is_updated,0) FROM m_document_request_item_files f INNER JOIN m_document_request_items i ON i.id=f.request_item_id WHERE i.request_id=? AND i.document_master_request_item_code=? AND f.file_uploaded=1 ORDER BY f.file_uploaded_at,f.id`
-		args = []any{row.ID, itemCode}
+type validateFileKey struct{ scope, code string }
+
+// Preserve the existing fallback: non-REQUEST scopes read profile files.
+func validateFileScope(scope string) string {
+	if scope == "REQUEST" {
+		return "REQUEST"
 	}
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
+	return "PROFILE"
+}
+
+// At most one file query per scope, independent of the number of items.
+func (r *Repository) validateFilesBatch(ctx context.Context, row requestRow, items []ValidateItem) (map[validateFileKey][]ValidateFile, error) {
+	result := make(map[validateFileKey][]ValidateFile, len(items))
+	scopes := map[string][]string{}
+	for _, item := range items {
+		scope := validateFileScope(item.StorageScope)
+		key := validateFileKey{scope: scope, code: item.ItemCode}
+		if _, exists := result[key]; exists {
+			continue
+		}
+		result[key] = []ValidateFile{}
+		scopes[scope] = append(scopes[scope], item.ItemCode)
 	}
-	defer rows.Close()
-	files := make([]ValidateFile, 0)
-	for rows.Next() {
-		var file ValidateFile
-		if err := rows.Scan(&file.FileID, &file.DocumentType, &file.SlotCode, &file.FilePath, &file.OriginalName, &file.MimeType, &file.FileSize, &file.UploadedAt, &file.CheckResult, &file.CheckNote, &file.IsUpdated); err != nil {
+	for _, scope := range []string{"PROFILE", "REQUEST"} {
+		codes := scopes[scope]
+		if len(codes) == 0 {
+			continue
+		}
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(codes)), ",")
+		query := `SELECT document_master_request_item_code,id,document_type,slot_code,COALESCE(file_path,''),COALESCE(original_file_name,''),COALESCE(mime_type,''),COALESCE(file_size,0),COALESCE(DATE_FORMAT(file_uploaded_at,'%d/%m/%Y %H:%i'),''),COALESCE(check_result,''),COALESCE(check_note,''),COALESCE(is_updated,0) FROM m_document_profile_request_item WHERE mobile_user_uuid=? AND document_master_request_item_code IN (` + placeholders + `) AND file_uploaded=1 ORDER BY file_uploaded_at,id`
+		args := []any{row.UserID}
+		if scope == "REQUEST" {
+			query = `SELECT i.document_master_request_item_code,f.id,f.document_type,f.slot_code,COALESCE(f.file_path,''),COALESCE(f.original_file_name,''),COALESCE(f.mime_type,''),COALESCE(f.file_size,0),COALESCE(DATE_FORMAT(f.file_uploaded_at,'%d/%m/%Y %H:%i'),''),COALESCE(f.check_result,''),COALESCE(f.check_note,''),COALESCE(f.is_updated,0) FROM m_document_request_item_files f INNER JOIN m_document_request_items i ON i.id=f.request_item_id INNER JOIN m_document_request r ON r.id=i.request_id WHERE i.request_id=? AND r.mobile_user_uuid=? AND i.document_master_request_item_code IN (` + placeholders + `) AND f.file_uploaded=1 ORDER BY f.file_uploaded_at,f.id`
+			args = []any{row.ID, row.UserID}
+		}
+		for _, code := range codes {
+			args = append(args, code)
+		}
+		rows, err := r.db.QueryContext(ctx, query, args...)
+		if err != nil {
 			return nil, err
 		}
-		files = append(files, file)
+		for rows.Next() {
+			var code string
+			var file ValidateFile
+			if err := rows.Scan(&code, &file.FileID, &file.DocumentType, &file.SlotCode, &file.FilePath, &file.OriginalName, &file.MimeType, &file.FileSize, &file.UploadedAt, &file.CheckResult, &file.CheckNote, &file.IsUpdated); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			key := validateFileKey{scope: scope, code: code}
+			result[key] = append(result[key], file)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
-	return files, rows.Err()
+	return result, nil
 }
 
 func (r *Repository) validateCreate(ctx context.Context, userID, code, idempotency string, price Price) (ValidateResponse, error) {
@@ -382,6 +447,15 @@ func (r *Repository) validateCreate(ctx context.Context, userID, code, idempoten
 		}
 		return ValidateResponse{}, &BusinessError{Code: "MA00013", Detail: "documentSetting"}
 	}
+	var address ValidateAddress
+	addressErr := r.db.QueryRowContext(ctx, `SELECT id,first_name,last_name,address_line,province,district,sub_district,postal_code FROM m_delivery_address WHERE mobile_user_uuid=? AND is_default=1 AND is_active='YES' ORDER BY updated_at DESC,id LIMIT 1`, userID).Scan(&address.ID, &address.FirstName, &address.LastName, &address.AddressLine, &address.Province, &address.District, &address.SubDistrict, &address.PostalCode)
+	var addressID any
+	if addressErr == nil {
+		addressID = address.ID
+	}
+	if addressErr != nil && !errors.Is(addressErr, sql.ErrNoRows) {
+		return ValidateResponse{}, addressErr
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ValidateResponse{}, err
@@ -396,12 +470,7 @@ func (r *Repository) validateCreate(ctx context.Context, userID, code, idempoten
 		return ValidateResponse{}, err
 	}
 	requestNo := fmt.Sprintf("%s%05d", period, number)
-	var address ValidateAddress
-	addressErr := r.db.QueryRowContext(ctx, `SELECT id,first_name,last_name,address_line,province,district,sub_district,postal_code FROM m_delivery_address WHERE mobile_user_uuid=? AND is_default=1 AND is_active='YES' ORDER BY updated_at DESC,id LIMIT 1`, userID).Scan(&address.ID, &address.FirstName, &address.LastName, &address.AddressLine, &address.Province, &address.District, &address.SubDistrict, &address.PostalCode)
-	var addressID any
-	if addressErr == nil {
-		addressID = address.ID
-	}
+
 	_, err = tx.ExecContext(ctx, `INSERT INTO m_document_request(id,request_no,mobile_user_uuid,mobile_number,email,document_code,document_status_id,price_setting_id,delivery_address_id,is_active,amount,idempotency_key) VALUES(?,?,?,?,?,?,?,(SELECT id FROM m_document_prices_setting WHERE document_code=? AND is_active='YES' AND effective_from<=CURRENT_DATE AND (effective_to IS NULL OR effective_to>=CURRENT_DATE) ORDER BY effective_from DESC LIMIT 1),?,'YES',?,?)`, id, requestNo, userID, mobile, email, code, statusID, code, addressID, price.Total, nullString(idempotency))
 	if err != nil {
 		return ValidateResponse{}, err
@@ -421,15 +490,11 @@ func (r *Repository) validateCreate(ctx context.Context, userID, code, idempoten
 	if err = tx.Commit(); err != nil {
 		return ValidateResponse{}, err
 	}
-	row, err := r.ownedRequest(ctx, userID, "id", id)
+	row := requestRow{ID: id, No: requestNo, UserID: userID, Mobile: mobile, Email: email, Code: code, IdempotencyKey: idempotency}
+	response, err := r.validateResponseWithDocument(ctx, row, code, idempotency, name, nameTh, nameEn)
 	if err != nil {
 		return ValidateResponse{}, err
 	}
-	response, err := r.validateResponse(ctx, row, code, idempotency)
-	if err != nil {
-		return ValidateResponse{}, err
-	}
-	response.DocumentName, response.DocumentNameTh, response.DocumentNameEn = name, nameTh, nameEn
 	return response, nil
 }
 
@@ -460,24 +525,41 @@ func (r *Repository) list(ctx context.Context, userID string, offset int) ([]Sum
 	return items, total, e
 }
 func (r *Repository) transition(ctx context.Context, userID, requestNo, to, action string) (TransitionResponse, error) {
-	row, e := r.ownedRequest(ctx, userID, "request_no", requestNo)
-	if e != nil {
-		return TransitionResponse{}, e
+	row, err := r.ownedRequest(ctx, userID, "request_no", requestNo)
+	if err != nil {
+		return TransitionResponse{}, err
 	}
-	if (action == "RESUBMIT" && row.StatusCode != "PENDING_APPLICANT_CORRECTION") ||
-		(action == "CANCEL" && row.StatusCode != "PAYMENT_PENDING") {
+	status, err := r.statusID(ctx, to)
+	if err != nil {
+		return TransitionResponse{}, err
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TransitionResponse{}, err
+	}
+	defer tx.Rollback()
+	var current string
+	if err = tx.QueryRowContext(ctx, "SELECT document_status_id FROM m_document_request WHERE id=? AND mobile_user_uuid=? AND is_active='YES' FOR UPDATE", row.ID, userID).Scan(&current); err != nil {
+		return TransitionResponse{}, err
+	}
+	if current != row.StatusID {
 		return TransitionResponse{}, &BusinessError{Code: "MA00005", Detail: "documentStatus"}
 	}
-	status, e := r.statusID(ctx, to)
-	if e != nil {
-		return TransitionResponse{}, e
+	if action == "CANCEL" {
+		var blocking int
+		if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM mobile_payment_attempts WHERE request_id=? AND (status NOT IN ('EXPIRED','FAILED') OR review_required=1)", row.ID).Scan(&blocking); err != nil {
+			return TransitionResponse{}, err
+		}
+		if blocking > 0 {
+			return TransitionResponse{}, payments.Conflict("PAYMENT_IN_PROGRESS")
+		}
 	}
 	activeClause := ""
 	if action == "CANCEL" {
 		activeClause = ",is_active='NO'"
 	}
-	if _, e = r.db.ExecContext(ctx, "UPDATE m_document_request SET document_status_id=?,is_resubmit=CASE WHEN ?='RESUBMIT' THEN 1 ELSE is_resubmit END,updated_at=NOW()"+activeClause+" WHERE id=?", status, action, row.ID); e != nil {
-		return TransitionResponse{}, e
+	if _, err = tx.ExecContext(ctx, "UPDATE m_document_request SET document_status_id=?,is_resubmit=CASE WHEN ?='RESUBMIT' THEN 1 ELSE is_resubmit END,updated_at=NOW()"+activeClause+" WHERE id=?", status, action, row.ID); err != nil {
+		return TransitionResponse{}, err
 	}
 	note := to
 	if action == "RESUBMIT" {
@@ -486,7 +568,12 @@ func (r *Repository) transition(ctx context.Context, userID, requestNo, to, acti
 	if action == "CANCEL" {
 		note = "Renewal request deleted by applicant"
 	}
-	_, _ = r.db.ExecContext(ctx, "INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by) VALUES(?,?,?,?,?,?,?)", uuid.NewString(), row.ID, action, row.StatusCode, to, note, userID)
+	if _, err = tx.ExecContext(ctx, "INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by) VALUES(?,?,?,?,?,?,?)", uuid.NewString(), row.ID, action, row.StatusCode, to, note, userID); err != nil {
+		return TransitionResponse{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return TransitionResponse{}, err
+	}
 	return TransitionResponse{RequestNo: row.No, FromStatus: row.StatusCode, ToStatus: to, Action: action}, nil
 }
 
@@ -562,38 +649,6 @@ func (r *Repository) timeline(ctx context.Context, userID, no string) (Timeline,
 	}
 	return result, rows.Err()
 }
-func (r *Repository) payment(ctx context.Context, userID, requestID string, input PaymentRequest) (PaymentResponse, error) {
-	row, e := r.ownedRequest(ctx, userID, "id", requestID)
-	if e != nil {
-		return PaymentResponse{}, e
-	}
-	var existing PaymentResponse
-	var existingExpiresAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, "SELECT id,transaction_no,status,channel,payment_method,amount,currency,provider,expires_at FROM m_payment_transaction WHERE request_id=? AND idempotency_key=?", requestID, input.IdempotencyKey).Scan(&existing.TransactionID, &existing.TransactionNo, &existing.Status, &existing.Channel, &existing.PaymentMethod, &existing.Amount, &existing.Currency, &existing.Provider, &existingExpiresAt)
-	if err == nil {
-		existing.RequestID = row.ID
-		existing.RequestNo = row.No
-		existing.ExpiresAt = formatNullableTime(existingExpiresAt)
-		return existing, nil
-	}
-	if r.omise == nil || !r.omise.enabled() {
-		return PaymentResponse{}, fmt.Errorf("OMISE_SECRET_KEY is not configured")
-	}
-	charge, e := r.omise.CreateCharge(row.Amount, row.No, input)
-	if e != nil {
-		return PaymentResponse{}, e
-	}
-	id := uuid.NewString()
-	no := "PAY" + strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", ""))[:20]
-	channel := "PROMPTPAY"
-	if strings.HasPrefix(input.PaymentMethod, "mobile_banking_") {
-		channel = "MOBILE_BANKING"
-	}
-	status := omisePaymentStatus(charge.Status)
-	_, e = r.db.ExecContext(ctx, `INSERT INTO m_payment_transaction(id,request_id,transaction_no,transaction_type,channel,payment_method,amount,currency,status,provider,provider_charge_id,provider_source_id,provider_transaction_id,provider_status,provider_response,idempotency_key,description,return_uri,authorize_uri,failure_code,failure_message,is_livemode,expires_at) VALUES(?,?,?,'CHARGE',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, requestID, no, channel, input.PaymentMethod, row.Amount, "THB", status, "OMISE", charge.ID, charge.SourceID, charge.TransactionID, charge.Status, charge.Raw, input.IdempotencyKey, "Document renewal "+row.No, charge.ReturnURI, charge.AuthorizeURI, charge.FailureCode, charge.FailureMessage, charge.Livemode, nullableTime(charge.ExpiresAt))
-	return PaymentResponse{RequestID: row.ID, RequestNo: row.No, TransactionID: id, TransactionNo: no, Status: status, Channel: channel, PaymentMethod: input.PaymentMethod, Amount: row.Amount, Currency: "THB", Provider: "OMISE", ProviderChargeID: charge.ID, AuthorizeURI: charge.AuthorizeURI, ReturnURI: charge.ReturnURI, QRCodeURI: charge.QRCodeURI, ExpiresAt: formatTime(charge.ExpiresAt), FailureCode: charge.FailureCode, FailureMessage: charge.FailureMessage}, e
-}
-
 func omisePaymentStatus(status string) string {
 	switch status {
 	case "successful":
@@ -630,20 +685,6 @@ func formatNullableTime(value sql.NullTime) string {
 	return formatTime(value.Time)
 }
 
-func (r *Repository) paymentStatus(ctx context.Context, userID, requestID, transactionID string) (PaymentResponse, error) {
-	row, e := r.ownedRequest(ctx, userID, "id", requestID)
-	if e != nil {
-		return PaymentResponse{}, e
-	}
-	var p PaymentResponse
-	var expiresAt sql.NullTime
-	e = r.db.QueryRowContext(ctx, "SELECT id,transaction_no,status,channel,payment_method,amount,currency,provider,expires_at FROM m_payment_transaction WHERE id=? AND request_id=?", transactionID, requestID).Scan(&p.TransactionID, &p.TransactionNo, &p.Status, &p.Channel, &p.PaymentMethod, &p.Amount, &p.Currency, &p.Provider, &expiresAt)
-	p.RequestID = row.ID
-	p.RequestNo = row.No
-	p.ExpiresAt = formatNullableTime(expiresAt)
-	return p, e
-}
-
 func (r *Repository) hardDelete(ctx context.Context, userID, requestNo string) (TransitionResponse, error) {
 	row, err := r.ownedRequest(ctx, userID, "request_no", requestNo)
 	if err != nil {
@@ -654,6 +695,10 @@ func (r *Repository) hardDelete(ctx context.Context, userID, requestNo string) (
 		return TransitionResponse{}, err
 	}
 	defer tx.Rollback()
+	var lockedID string
+	if err = tx.QueryRowContext(ctx, "SELECT id FROM m_document_request WHERE id=? AND mobile_user_uuid=? FOR UPDATE", row.ID, userID).Scan(&lockedID); err != nil {
+		return TransitionResponse{}, err
+	}
 	for _, table := range []string{"m_delivery", "m_dept_submission"} {
 		var exists int
 		if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", table).Scan(&exists); err != nil {
@@ -665,7 +710,9 @@ func (r *Repository) hardDelete(ctx context.Context, userID, requestNo string) (
 			}
 		}
 	}
-	for _, query := range []string{
+	queries := []string{
+		"DELETE FROM mobile_payment_request_state WHERE request_id=?",
+		"DELETE FROM mobile_payment_attempts WHERE request_id=?",
 		"DELETE f FROM m_document_request_item_files f INNER JOIN m_document_request_items i ON i.id=f.request_item_id WHERE i.request_id=?",
 		"DELETE FROM m_document_request_items WHERE request_id=?",
 		"DELETE FROM m_document_request_delivery_address WHERE request_id=?",
@@ -673,7 +720,8 @@ func (r *Repository) hardDelete(ctx context.Context, userID, requestNo string) (
 		"DELETE FROM m_document_transaction WHERE request_id=?",
 		"DELETE FROM m_payment_transaction WHERE request_id=?",
 		"DELETE FROM m_document_request WHERE id=? AND mobile_user_uuid=?",
-	} {
+	}
+	for _, query := range queries {
 		var result sql.Result
 		if query == "DELETE FROM m_document_request WHERE id=? AND mobile_user_uuid=?" {
 			result, err = tx.ExecContext(ctx, query, row.ID, userID)
@@ -694,28 +742,4 @@ func (r *Repository) hardDelete(ctx context.Context, userID, requestNo string) (
 		return TransitionResponse{}, err
 	}
 	return TransitionResponse{RequestNo: row.No, FromStatus: row.StatusCode, ToStatus: "DELETED", Action: "HARD_DELETE"}, nil
-}
-
-func (r *Repository) updateWebhook(ctx context.Context, charge omiseCharge) error {
-	status := omisePaymentStatus(charge.Status)
-	_, err := r.db.ExecContext(ctx, "UPDATE m_payment_transaction SET status=?, provider_source_id=?, provider_transaction_id=?, provider_status=?, provider_response=?, return_uri=?, authorize_uri=?, failure_code=?, failure_message=?, is_livemode=?, expires_at=COALESCE(?, expires_at), paid_at=CASE WHEN ?='SUCCESS' THEN NOW() ELSE paid_at END, failed_at=CASE WHEN ?='FAILED' THEN NOW() ELSE failed_at END, updated_at=NOW() WHERE provider='OMISE' AND provider_charge_id=?", status, charge.SourceID, charge.TransactionID, charge.Status, charge.Raw, charge.ReturnURI, charge.AuthorizeURI, charge.FailureCode, charge.FailureMessage, charge.Livemode, nullableTime(charge.ExpiresAt), status, status, charge.ID)
-	if err != nil {
-		return err
-	}
-	if status != "SUCCESS" {
-		return nil
-	}
-	result, err := r.db.ExecContext(ctx, `UPDATE m_document_request r INNER JOIN m_payment_transaction p ON p.request_id=r.id SET r.document_status_id=(SELECT id FROM m_document_status WHERE document_status_code='PENDING_DOCUMENT_REVIEW' AND is_active='YES' LIMIT 1), r.updated_at=NOW() WHERE p.provider='OMISE' AND p.provider_charge_id=? AND r.document_status_id=(SELECT id FROM m_document_status WHERE document_status_code='PAYMENT_PENDING' AND is_active='YES' LIMIT 1)`, charge.ID)
-	if err != nil {
-		return err
-	}
-	updated, err := result.RowsAffected()
-	if err != nil || updated != 1 {
-		return err
-	}
-	_, err = r.db.ExecContext(ctx, `INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by)
-		SELECT UUID(),p.request_id,'PAYMENT_SUCCESS','PAYMENT_PENDING','PENDING_DOCUMENT_REVIEW','Payment completed',r.mobile_user_uuid
-		FROM m_document_request r INNER JOIN m_payment_transaction p ON p.request_id=r.id
-		WHERE p.provider='OMISE' AND p.provider_charge_id=?`, charge.ID)
-	return err
 }

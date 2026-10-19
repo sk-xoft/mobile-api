@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"database/sql"
+	payments "github.com/smartseaman/mobile-api/internal/domain/payment"
+	paymentmysql "github.com/smartseaman/mobile-api/internal/platform/mysql/payment"
+	paymentprovider "github.com/smartseaman/mobile-api/internal/platform/payment"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -52,9 +55,11 @@ import (
 )
 
 type Application struct {
-	server  *fiber.App
-	db      *sql.DB
-	address string
+	server       *fiber.App
+	db           *sql.DB
+	address      string
+	stopPayments context.CancelFunc
+	paymentsDone chan struct{}
 }
 
 func New(cfg config.Config) (*Application, error) {
@@ -92,7 +97,8 @@ func New(cfg config.Config) (*Application, error) {
 	masterService := master.NewService(mastermysql.NewRepository(db))
 	documentService := document.NewService(documentmysql.NewRepository(db), objectStorage, cfg.Storage.DocumentPath)
 	deliveryService := delivery.NewService(deliverymysql.NewRepository(db))
-	renewalService := renewal.NewService(renewalmysql.NewRepository(db, renewal.NewOmiseClient(cfg.Payment.QRExpire)))
+	paymentService := payments.NewService(paymentmysql.NewStore(db), paymentprovider.NewOmise(cfg.Payment.APIURL, cfg.Payment.SecretKey, cfg.Payment.WebhookSecret, cfg.Payment.QRExpire), cfg.Payment.LiveMode)
+	renewalService := renewal.NewService(renewalmysql.NewRepository(db, renewal.NewOmiseClient(cfg.Payment.QRExpire)), paymentService)
 	contentService := content.NewService(contentmysql.NewRepository(db), objectStorage, cfg.Storage.FormPath, cfg.Storage.NewsPath)
 	catalogService := catalog.NewService(catalogmysql.NewRepository(db), objectStorage, cfg.Storage.BannerPath, cfg.Storage.VoucherPath, cfg.Storage.VoucherQRPath)
 	notificationService := notification.NewService(notificationmysql.NewRepository(db))
@@ -100,12 +106,42 @@ func New(cfg config.Config) (*Application, error) {
 	fcmService := fcm.NewService(fcmmysql.NewRepository(db))
 	routes.Register(server, db, authhttp.NewHandler(authService, authRepository), profilehttp.NewHandler(profileService), masterhttp.NewHandler(masterService), documenthttp.NewHandler(documentService), deliveryhttp.NewHandler(deliveryService), fcmhttp.NewHandler(fcmService), renewalhttp.NewHandler(renewalService), contenthttp.NewHandler(contentService), cataloghttp.NewHandler(catalogService), notificationhttp.NewHandler(notificationService), requestitemhttp.NewHandler(requestItemService), cfg.Security.JWTSecret)
 
-	return &Application{server: server, db: db, address: cfg.App.Address}, nil
+	application := &Application{server: server, db: db, address: cfg.App.Address, paymentsDone: make(chan struct{})}
+	if cfg.Payment.WorkerEnabled && cfg.Payment.SecretKey != "" && db != nil {
+		workerContext, cancel := context.WithCancel(context.Background())
+		application.stopPayments = cancel
+		go func() { defer close(application.paymentsDone); paymentService.Run(workerContext) }()
+	} else {
+		close(application.paymentsDone)
+	}
+	return application, nil
 }
 
-func (a *Application) Listen() error                      { return a.server.Listen(a.address) }
-func (a *Application) Shutdown(ctx context.Context) error { return a.server.ShutdownWithContext(ctx) }
+func (a *Application) Listen() error { return a.server.Listen(a.address) }
+func (a *Application) Shutdown(ctx context.Context) error {
+	err := a.server.ShutdownWithContext(ctx)
+	if a.stopPayments != nil {
+		a.stopPayments()
+	}
+	if a.paymentsDone == nil {
+		return err
+	}
+	select {
+	case <-a.paymentsDone:
+	case <-ctx.Done():
+		if err == nil {
+			err = ctx.Err()
+		}
+	}
+	return err
+}
 func (a *Application) Close() {
+	if a.stopPayments != nil {
+		a.stopPayments()
+	}
+	if a.paymentsDone != nil {
+		<-a.paymentsDone
+	}
 	if a.db != nil {
 		a.db.Close()
 	}

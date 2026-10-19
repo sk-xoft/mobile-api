@@ -1,0 +1,602 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Smart Seaman renewal payments",
+    "version": "1.0.0",
+    "description": "Manual PromptPay QR replacement with durable attempts and reconciliation. See payments.md for rollout and uncertainty handling."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/document-renewals/{requestId}/payments": {
+      "parameters": [
+        {
+          "name": "requestId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "Accept-Language",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "devicemodel",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "correlationid",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "createRenewalPayment",
+        "summary": "Create an attempt or replay its idempotency key",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentInput"
+              },
+              "example": {
+                "paymentMethod": "promptpay",
+                "idempotencyKey": "0d4f9666-c98e-4b10-b671-285ea9e395bc"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Attempt snapshot; PROCESSING is not proof of nonpayment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or incomplete request documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication/session rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Payment/request not found or wrong owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict, another active attempt, already paid, or manual review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getCurrentRenewalPayment",
+        "summary": "Resume payment: accepted paid attempt, active attempt, or latest attempt",
+        "responses": {
+          "200": {
+            "description": "Attempt snapshot; PROCESSING is not proof of nonpayment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or incomplete request documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication/session rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Payment/request not found or wrong owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict, another active attempt, already paid, or manual review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/document-renewals/{requestId}/payments/{transactionId}": {
+      "parameters": [
+        {
+          "name": "requestId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "Accept-Language",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "devicemodel",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "correlationid",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "transactionId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getRenewalPayment",
+        "summary": "Read/reconcile a specific owned payment attempt",
+        "responses": {
+          "200": {
+            "description": "Attempt snapshot; PROCESSING is not proof of nonpayment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or incomplete request documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication/session rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Payment/request not found or wrong owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict, another active attempt, already paid, or manual review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Database or internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/payments/omise/webhook": {
+      "post": {
+        "operationId": "omisePaymentWebhook",
+        "summary": "Reconcile supported charge events against the authenticated provider API",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Omise-Signature",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required when OMISE_WEBHOOK_SECRET is configured."
+          },
+          {
+            "name": "Omise-Signature-Timestamp",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required when OMISE_WEBHOOK_SECRET is configured."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "key",
+                  "data"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "data": {
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Applied, already processed, unrelated charge or ignored event"
+          },
+          "400": {
+            "description": "Invalid JSON"
+          },
+          "401": {
+            "description": "Invalid configured signature"
+          },
+          "500": {
+            "description": "Retryable reconciliation failure"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "PaymentInput": {
+        "type": "object",
+        "required": [
+          "paymentMethod",
+          "idempotencyKey"
+        ],
+        "properties": {
+          "paymentMethod": {
+            "type": "string",
+            "description": "promptpay or an existing mobile_banking_* method; QR replacement is for PromptPay."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "New UUID per intentional attempt; reuse unchanged on network retries."
+          },
+          "returnUri": {
+            "type": "string"
+          },
+          "platformType": {
+            "type": "string"
+          }
+        }
+      },
+      "Payment": {
+        "type": "object",
+        "required": [
+          "requestId",
+          "requestNo",
+          "transactionId",
+          "transactionNo",
+          "status",
+          "serverTime",
+          "qrExpired",
+          "nextAction",
+          "retryAfterSeconds"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "requestNo": {
+            "type": "string"
+          },
+          "transactionId": {
+            "type": "string"
+          },
+          "transactionNo": {
+            "type": "string"
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "providerChargeId": {
+            "type": "string"
+          },
+          "authorizeUri": {
+            "type": "string"
+          },
+          "returnUri": {
+            "type": "string"
+          },
+          "qrCodeDownloadUri": {
+            "type": "string"
+          },
+          "failureCode": {
+            "type": "string"
+          },
+          "failureMessage": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PROCESSING",
+              "PENDING",
+              "EXPIRED",
+              "FAILED",
+              "SUCCESS"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "PROMPTPAY",
+              "MOBILE_BANKING"
+            ]
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "THB"
+            ]
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "OMISE"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "serverTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "qrExpired": {
+            "type": "boolean"
+          },
+          "nextAction": {
+            "type": "string",
+            "enum": [
+              "WAIT_FOR_PAYMENT",
+              "CHECK_PAYMENT",
+              "CREATE_NEW_QR",
+              "COMPLETE",
+              "CONTACT_SUPPORT"
+            ]
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PaymentEnvelope": {
+        "type": "object",
+        "required": [
+          "code",
+          "description",
+          "data"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "MA00000"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Payment"
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "required": [
+          "code",
+          "description"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "data": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Payment"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

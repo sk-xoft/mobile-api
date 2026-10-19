@@ -56,5 +56,6 @@ type RegisterResponse struct {
 }
 
 type RefreshTokenResponse struct {
-	Token string `json:"token"`
+	RefreshToken string `json:"refToken"`
+	Token        string `json:"token"`
 }

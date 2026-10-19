@@ -2,8 +2,9 @@ package renewal
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	payments "github.com/smartseaman/mobile-api/internal/domain/payment"
+	"go.uber.org/zap"
 	"strings"
 )
 
@@ -28,7 +29,11 @@ func (s *Service) Validate(ctx context.Context, userID, documentCode, idempotenc
 		return ValidateResponse{}, &BusinessError{Code: "MA00005", Detail: "idempotencyKey"}
 	}
 	if idempotencyKey != "" {
-		if existing, lookupErr := s.repository.validateExisting(ctx, userID, "idempotency_key", idempotencyKey); lookupErr == nil {
+		existing, lookupErr := s.repository.validateExisting(ctx, userID, "idempotency_key", idempotencyKey)
+		if lookupErr != nil && !errors.Is(lookupErr, ErrNotFound) {
+			return ValidateResponse{}, lookupErr
+		}
+		if lookupErr == nil {
 			if existing.Code != documentCode {
 				return ValidateResponse{}, &BusinessError{Code: "MA00005", Detail: "idempotencyKey"}
 			}
@@ -36,7 +41,11 @@ func (s *Service) Validate(ctx context.Context, userID, documentCode, idempotenc
 		}
 	}
 	var active requestRow
-	if latest, lookupErr := s.repository.latestActive(ctx, userID, documentCode); lookupErr == nil {
+	latest, lookupErr := s.repository.latestActive(ctx, userID, documentCode)
+	if lookupErr != nil && !errors.Is(lookupErr, ErrNotFound) {
+		return ValidateResponse{}, lookupErr
+	}
+	if lookupErr == nil {
 		active = latest
 		return s.repository.validateResponse(ctx, active, documentCode, active.IdempotencyKey)
 	}
@@ -103,43 +112,89 @@ func (s *Service) Timeline(ctx context.Context, userID, no string) (Timeline, er
 	return s.repository.timeline(ctx, userID, no)
 }
 func (s *Service) Stage(ctx context.Context, userID, no string) (StageResponse, error) {
+	no = strings.ToUpper(strings.TrimSpace(no))
+	if no == "" || len(no) > 20 || !validRequestNo(no) {
+		return StageResponse{}, &BusinessError{Code: "MA00005", Detail: "requestNo"}
+	}
 	row, e := s.repository.ownedRequest(ctx, userID, "request_no", no)
 	if e != nil {
+		zap.L().Error("renewal stage request lookup failed", zap.String("request_no", no), zap.Error(e))
 		return StageResponse{}, e
 	}
-	codes := []string{"PAYMENT_PENDING", "PENDING_DOCUMENT_REVIEW", "PENDING_MARINE_DEPARTMENT_RESULT", "PENDING_DEPARTMENT_DOCUMENT_PICKUP", "DELIVERING", "DELIVERED"}
-	stages := make([]Stage, 0, len(codes))
-	for i, code := range codes {
-		stages = append(stages, Stage{Code: code, Name: code, Step: i + 1, Current: code == row.StatusCode})
+	current, e := s.repository.stageCurrentStatus(ctx, row.ID)
+	if e != nil {
+		zap.L().Error("renewal stage current status lookup failed", zap.String("request_no", no), zap.Error(e))
+		return StageResponse{}, e
 	}
-	return StageResponse{RequestNo: no, CurrentStatus: row.StatusCode, Stages: stages}, nil
+	statuses, e := s.repository.Statuses(ctx)
+	if e != nil {
+		zap.L().Error("renewal stage statuses lookup failed", zap.String("request_no", no), zap.Error(e))
+		return StageResponse{}, e
+	}
+	ladder := make(map[int]statusRow, 5)
+	for _, status := range statuses {
+		if step := progress(status.MobileCode); step > 0 && status.MobileCode != "" {
+			if _, exists := ladder[step]; !exists {
+				ladder[step] = status
+			}
+		}
+	}
+	if current.DocumentStatusCode == "" {
+		return StageResponse{}, &BusinessError{Code: "MA00013", Detail: "documentRenewalStatus"}
+	}
+	if len(ladder) != 5 {
+		return StageResponse{}, &BusinessError{Code: "MA00013", Detail: "documentRenewalStageLadder"}
+	}
+	var currentStep *int
+	if current.Step != nil {
+		value := *current.Step
+		currentStep = &value
+	}
+	stages := make([]Stage, 0, 5)
+	for step := 1; step <= 5; step++ {
+		status, exists := ladder[step]
+		if !exists || status.MobileCode == "" {
+			return StageResponse{}, &BusinessError{Code: "MA00013", Detail: "documentRenewalStageLadder"}
+		}
+		state := "PENDING"
+		if currentStep != nil {
+			if step < *currentStep {
+				state = "DONE"
+			} else if step == *currentStep {
+				state = "CURRENT"
+			}
+		}
+		stages = append(stages, Stage{Step: step, DocumentMobileStatusCode: status.MobileCode, NameTh: status.MobileNameTh, NameEn: status.MobileNameEn, State: state})
+	}
+	return StageResponse{RequestNo: row.No, CurrentStatus: current, Stages: stages}, nil
+}
+
+func validRequestNo(value string) bool {
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 func (s *Service) Payment(ctx context.Context, userID, requestID string, input PaymentRequest) (PaymentResponse, error) {
-	if strings.TrimSpace(input.PaymentMethod) == "" || strings.TrimSpace(input.IdempotencyKey) == "" {
-		return PaymentResponse{}, &BusinessError{Code: "MA00005", Detail: "paymentMethod/idempotencyKey"}
+	if s.payments == nil {
+		return PaymentResponse{}, payments.Conflict("PAYMENT_UNAVAILABLE")
 	}
-	row, err := s.repository.ownedRequest(ctx, userID, "id", requestID)
-	if err != nil {
-		return PaymentResponse{}, err
-	}
-	if row.StatusCode != "PAYMENT_PENDING" {
-		return PaymentResponse{}, &BusinessError{Code: "MA00005", Detail: "documentStatus"}
-	}
-	incompleteCount, err := s.repository.countIncompleteRequestItems(ctx, requestID)
-	if err != nil {
-		return PaymentResponse{}, err
-	}
-	if incompleteCount > 0 {
-		return PaymentResponse{}, &BusinessError{Code: "MA00004", Detail: "requestDocumentItems"}
-	}
-	return s.repository.payment(ctx, userID, requestID, input)
+	return s.payments.Create(ctx, userID, requestID, input)
 }
 func (s *Service) PaymentStatus(ctx context.Context, userID, requestID, transactionID string) (PaymentResponse, error) {
-	p, e := s.repository.paymentStatus(ctx, userID, requestID, transactionID)
-	if errors.Is(e, context.Canceled) {
-		return p, e
+	if s.payments == nil {
+		return PaymentResponse{}, payments.Conflict("PAYMENT_UNAVAILABLE")
 	}
-	return p, e
+	return s.payments.Get(ctx, userID, requestID, transactionID)
+}
+func (s *Service) CurrentPayment(ctx context.Context, userID, requestID string) (PaymentResponse, error) {
+	if s.payments == nil {
+		return PaymentResponse{}, payments.Conflict("PAYMENT_UNAVAILABLE")
+	}
+	return s.payments.Current(ctx, userID, requestID)
 }
 func (s *Service) HardDelete(ctx context.Context, userID, requestNo string) (TransitionResponse, error) {
 	requestNo = strings.ToUpper(strings.TrimSpace(requestNo))
@@ -149,21 +204,8 @@ func (s *Service) HardDelete(ctx context.Context, userID, requestNo string) (Tra
 	return s.repository.hardDelete(ctx, userID, requestNo)
 }
 func (s *Service) Webhook(ctx context.Context, raw, signature, timestamp string) error {
-	if s.repository.Omise() == nil || !s.repository.Omise().VerifySignature(raw, signature, timestamp) {
-		return &BusinessError{Code: "OMISE_INVALID_SIGNATURE", Detail: "signature"}
+	if s.payments == nil {
+		return payments.Conflict("PAYMENT_UNAVAILABLE")
 	}
-	var payload struct {
-		Key  string `json:"key"`
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil || payload.Key != "charge.complete" || payload.Data.ID == "" {
-		return nil
-	}
-	charge, err := s.repository.Omise().RetrieveCharge(payload.Data.ID)
-	if err != nil {
-		return err
-	}
-	return s.repository.updateWebhook(ctx, charge)
+	return s.payments.Webhook(ctx, raw, signature, timestamp)
 }

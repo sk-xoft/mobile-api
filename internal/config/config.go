@@ -36,7 +36,10 @@ type Security struct {
 }
 
 type Payment struct {
-	QRExpire time.Duration
+	QRExpire                         time.Duration
+	WorkerEnabled                    bool
+	LiveMode                         bool
+	APIURL, SecretKey, WebhookSecret string
 }
 
 type Email struct {
@@ -81,7 +84,12 @@ func Load() (Config, error) {
 			AllowedOrigins: envList("CORS_ALLOWED_ORIGINS", []string{"https://mobile.smartseaman.com", "https://admin.smartseaman.com"}),
 		},
 		Payment: Payment{
-			QRExpire: time.Duration(envInt("PAYMENT_QR_EXPIRE_MINUTES", 15)) * time.Minute,
+			WorkerEnabled: env("PAYMENT_WORKER_ENABLED", "true") == "true",
+			LiveMode:      env("OMISE_LIVE_MODE", "false") == "true",
+			APIURL:        env("OMISE_API_URL", "https://api.omise.co"),
+			SecretKey:     os.Getenv("OMISE_SECRET_KEY"),
+			WebhookSecret: os.Getenv("OMISE_WEBHOOK_SECRET"),
+			QRExpire:      time.Duration(envInt("PAYMENT_QR_EXPIRE_MINUTES", 15)) * time.Minute,
 		},
 		Email: Email{
 			Host:             env("SMTP_HOST", "smtp.gmail.com"),
@@ -108,6 +116,21 @@ func Load() (Config, error) {
 		},
 	}
 
+	for _, flag := range []string{"PAYMENT_WORKER_ENABLED", "OMISE_LIVE_MODE"} {
+		if value := os.Getenv(flag); value != "" {
+			if _, err := strconv.ParseBool(value); err != nil {
+				return Config{}, fmt.Errorf("%s must be a boolean", flag)
+			}
+		}
+	}
+	cfg.Payment.WorkerEnabled, _ = strconv.ParseBool(env("PAYMENT_WORKER_ENABLED", "true"))
+	cfg.Payment.LiveMode, _ = strconv.ParseBool(env("OMISE_LIVE_MODE", "false"))
+	if strings.HasPrefix(cfg.Payment.SecretKey, "skey_live_") && !cfg.Payment.LiveMode {
+		return Config{}, fmt.Errorf("OMISE_LIVE_MODE must be true for a live key")
+	}
+	if strings.HasPrefix(cfg.Payment.SecretKey, "skey_test_") && cfg.Payment.LiveMode {
+		return Config{}, fmt.Errorf("OMISE_LIVE_MODE must be false for a test key")
+	}
 	if cfg.Security.JWTSecret == "" {
 		return Config{}, fmt.Errorf("JWT_SECRET is required")
 	}

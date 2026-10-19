@@ -50,3 +50,5 @@ docker compose -f docker-compose.dev.yml up --build
 ```
 
 The production `Dockerfile` intentionally builds an immutable binary and does not include hot reload.
+
+

@@ -3,7 +3,8 @@ package renewal
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	payments "github.com/smartseaman/mobile-api/internal/domain/payment"
+	"go.uber.org/zap"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -62,6 +63,10 @@ func (h *Handler) Payment(c *fiber.Ctx) error {
 	v, e := h.service.Payment(c.UserContext(), uid(c), c.Params("requestId"), q)
 	return h.result(c, v, e)
 }
+func (h *Handler) CurrentPayment(c *fiber.Ctx) error {
+	v, e := h.service.CurrentPayment(c.UserContext(), uid(c), c.Params("requestId"))
+	return h.result(c, v, e)
+}
 func (h *Handler) PaymentStatus(c *fiber.Ctx) error {
 	v, e := h.service.PaymentStatus(c.UserContext(), uid(c), c.Params("requestId"), c.Params("transactionId"))
 	return h.result(c, v, e)
@@ -69,7 +74,7 @@ func (h *Handler) PaymentStatus(c *fiber.Ctx) error {
 func (h *Handler) HardDelete(c *fiber.Ctx) error {
 	v, e := h.service.HardDelete(c.UserContext(), uid(c), c.Params("requestNo"))
 	if e != nil {
-		log.Printf("renewal hard delete failed request_no=%s: %v", c.Params("requestNo"), e)
+		zap.L().Error("renewal hard delete failed", zap.String("request_no", c.Params("requestNo")), zap.Error(e))
 	}
 	return h.result(c, v, e)
 }
@@ -89,6 +94,10 @@ func (h *Handler) Webhook(c *fiber.Ctx) error {
 		return c.SendStatus(400)
 	}
 	if e := h.service.Webhook(c.UserContext(), string(c.Body()), c.Get("Omise-Signature"), c.Get("Omise-Signature-Timestamp")); e != nil {
+		var paymentError *payments.Error
+		if errors.As(e, &paymentError) && paymentError.Code == "OMISE_INVALID_SIGNATURE" {
+			return c.SendStatus(401)
+		}
 		var businessError *BusinessError
 		if errors.As(e, &businessError) {
 			return c.SendStatus(401)
@@ -98,6 +107,20 @@ func (h *Handler) Webhook(c *fiber.Ctx) error {
 	return c.SendStatus(200)
 }
 func (h *Handler) fail(c *fiber.Ctx, e error) error {
+	if errors.Is(e, payments.ErrNotFound) {
+		return httpx.Error(c, 404, "PAYMENT_NOT_FOUND", "Payment not found")
+	}
+	var paymentError *payments.Error
+	if errors.As(e, &paymentError) {
+		status := 409
+		if paymentError.Code == "PAYMENT_INVALID_INPUT" || paymentError.Code == "PAYMENT_DOCUMENTS_INCOMPLETE" {
+			status = 400
+		}
+		if paymentError.Code == "PAYMENT_UNAVAILABLE" {
+			status = 503
+		}
+		return c.Status(status).JSON(httpx.Response{Code: paymentError.Code, Description: paymentError.Code, Data: paymentError.Payment})
+	}
 	if errors.Is(e, ErrNotFound) {
 		return httpx.Error(c, 400, "MA00016", "data")
 	}

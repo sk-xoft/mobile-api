@@ -65,8 +65,21 @@ func (r *Repository) UpdateStatus(ctx context.Context, email, status string) (Us
 	if err != nil {
 		return User{}, err
 	}
-	_, err = r.db.ExecContext(ctx, "UPDATE m_mobile_users SET USER_STATUS=?, UPDATE_DATE=NOW(), UPDATE_BY=? WHERE MOBILE_UUID=?", status, user.Username, user.UUID)
-	return user, err
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "UPDATE m_mobile_users SET USER_STATUS=?, UPDATE_DATE=NOW(), UPDATE_BY=? WHERE MOBILE_UUID=?", status, user.Username, user.UUID); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE t_session SET IS_ONLINE='NO' WHERE USER_ID=?", user.UUID); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM mobile_auth_tokens WHERE user_id=?", user.UUID); err != nil {
+		return User{}, err
+	}
+	return user, tx.Commit()
 }
 
 func nullable(value string) any {

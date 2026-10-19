@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,20 +11,29 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/smartseaman/mobile-api/internal/app"
 	"github.com/smartseaman/mobile-api/internal/config"
+	"github.com/smartseaman/mobile-api/internal/platform/logging"
+	"go.uber.org/zap"
 )
 
 func main() {
 	_ = godotenv.Load()
+	logger, err := logging.New(os.Getenv("LOG_TIMEZONE"))
+	if err != nil {
+		os.Exit(1)
+	}
+	cleanupLogging := logging.Install(logger)
+	defer cleanupLogging()
+	defer func() { _ = logger.Sync() }()
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("load configuration", "error", err)
+		zap.L().Error("load configuration", zap.Error(err))
 		os.Exit(1)
 	}
 
 	application, err := app.New(cfg)
 	if err != nil {
-		slog.Error("initialize application", "error", err)
+		zap.L().Error("initialize application", zap.Error(err))
 		os.Exit(1)
 	}
 	defer application.Close()
@@ -38,16 +46,16 @@ func main() {
 
 	select {
 	case sig := <-stop:
-		slog.Info("shutting down", "signal", sig.String())
+		zap.L().Info("shutting down", zap.String("signal", sig.String()))
 	case err := <-serverErrors:
 		if !errors.Is(err, context.Canceled) {
-			slog.Error("server stopped", "error", err)
+			zap.L().Error("server stopped", zap.Error(err))
 		}
 	}
 
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := application.Shutdown(shutdownContext); err != nil {
-		slog.Error("graceful shutdown", "error", err)
+		zap.L().Error("graceful shutdown", zap.Error(err))
 	}
 }

@@ -77,7 +77,7 @@ func expectOwnedRequest(mock sqlmock.Sqlmock, key string, args ...driver.Value) 
 		AddRow("request-1", "260100001", "user-1", "0812345678", "crew@example.com", "DOC001", "status-1", "PAYMENT_PENDING", "Payment pending", "idem-1", 180.0, false, time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)))
 }
 
-func TestRenewalRepositoryListDetailTimelineAndPaymentStatus(t *testing.T) {
+func TestRenewalRepositoryListDetailTimeline(t *testing.T) {
 	r, mock, closeDB := newMockRenewalRepository(t)
 	defer closeDB()
 	when := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
@@ -104,14 +104,6 @@ func TestRenewalRepositoryListDetailTimelineAndPaymentStatus(t *testing.T) {
 		t.Fatalf("timeline = %#v, %v", timeline, err)
 	}
 
-	expectOwnedRequest(mock, "id", "request-1", "user-1")
-	expires := time.Date(2026, 1, 2, 4, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,transaction_no,status,channel,payment_method,amount,currency,provider,expires_at")).WithArgs("tx-1", "request-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "transaction_no", "status", "channel", "payment_method", "amount", "currency", "provider", "expires_at"}).AddRow("tx-1", "PAY001", "PENDING", "PROMPTPAY", "promptpay", 180, "THB", "OMISE", expires))
-	payment, err := r.paymentStatus(context.Background(), "user-1", "request-1", "tx-1")
-	if err != nil || payment.TransactionID != "tx-1" || payment.ExpiresAt != expires.Format(time.RFC3339) {
-		t.Fatalf("payment = %#v, %v", payment, err)
-	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}

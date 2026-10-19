@@ -35,9 +35,18 @@ func (r *Repository) Statuses(ctx context.Context) ([]statusRow, error) {
 	result := make([]statusRow, 0)
 	for rows.Next() {
 		var row statusRow
-		if err := rows.Scan(&row.ID, &row.Code, &row.MobileCode, &row.MobileNameTh, &row.MobileNameEn, &row.NameTh, &row.NameEn, &row.CSSColor); err != nil {
+		var id, code, mobileCode, mobileNameTh, mobileNameEn, nameTh, nameEn, cssColor sql.NullString
+		if err := rows.Scan(&id, &code, &mobileCode, &mobileNameTh, &mobileNameEn, &nameTh, &nameEn, &cssColor); err != nil {
 			return nil, err
 		}
+		row.ID = id.String
+		row.Code = code.String
+		row.MobileCode = mobileCode.String
+		row.MobileNameTh = mobileNameTh.String
+		row.MobileNameEn = mobileNameEn.String
+		row.NameTh = nameTh.String
+		row.NameEn = nameEn.String
+		row.CSSColor = cssColor.String
 		result = append(result, row)
 	}
 	return result, rows.Err()

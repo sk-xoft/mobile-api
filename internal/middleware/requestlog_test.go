@@ -1,6 +1,9 @@
 package middleware
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSanitizeRequestBodyMasksBase64File(t *testing.T) {
 	body := `{"fileCert":"data:application/pdf;base64,very-large-file","name":"certificate"}`
@@ -35,5 +38,14 @@ func TestCapLogBody(t *testing.T) {
 	result := capLogBody(make([]byte, requestLogMaxBodyBytes+10))
 	if len(result) != requestLogMaxBodyBytes+len("...[BODY_TRUNCATED]") {
 		t.Fatalf("capped body length = %d", len(result))
+	}
+}
+
+func TestSanitizeAuthCredentials(t *testing.T) {
+	for _, body := range []string{`{"refToken":"refresh-secret"}`, `{"uid":"email-action-secret"}`} {
+		result := sanitizeResponseBody("application/json", []byte(body))
+		if strings.Contains(result, "secret") || !strings.Contains(result, redactedMarker) {
+			t.Fatalf("credential leaked: %s", result)
+		}
 	}
 }

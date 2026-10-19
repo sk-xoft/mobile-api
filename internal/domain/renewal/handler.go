@@ -1,7 +1,6 @@
 package renewal
 
 import (
-	"errors"
 	"github.com/gofiber/fiber/v2"
 	"github.com/smartseaman/mobile-api/internal/transport/httpx"
 )
@@ -25,14 +24,7 @@ func (h *Handler) Price(c *fiber.Ctx) error {
 }
 func (h *Handler) result(c *fiber.Ctx, data any, err error) error {
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return httpx.Error(c, fiber.StatusBadRequest, "MA00016", "data")
-		}
-		var business *BusinessError
-		if errors.As(err, &business) {
-			return httpx.Error(c, fiber.StatusBadRequest, business.Code, business.Detail)
-		}
-		return httpx.Error(c, fiber.StatusInternalServerError, "MA00013", "Technical exception")
+		return h.fail(c, err)
 	}
 	return httpx.Success(c, data)
 }

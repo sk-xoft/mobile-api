@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 )
 
 type Repository struct{ db *sql.DB }
@@ -91,11 +90,6 @@ func (r *Repository) Register(ctx context.Context, request RegisterRequest, mobi
 	return tx.Commit()
 }
 
-func (r *Repository) CreateForgotPassword(ctx context.Context, mobileUUID string) error {
-	_, err := r.db.ExecContext(ctx, "INSERT INTO t_forgot_password (USER_UUID, IS_STATUS, CREATED_AT) VALUES (?, 'NO', NOW())", mobileUUID)
-	return err
-}
-
 func nullable(value string) any {
 	if value == "" {
 		return nil
@@ -103,57 +97,22 @@ func nullable(value string) any {
 	return value
 }
 
-func (r *Repository) CreateSession(ctx context.Context, sessionID, userID, token, correlationID string, now time.Time) error {
+func (r *Repository) UpdatePassword(ctx context.Context, mobileUUID, password string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO t_session
-		(CLIENT_SESSION_ID, USER_ID, LOGIN_TIME, DEVICE_MODEL, TOKEN, CREATE_DATE, CREATE_BY, UPDATE_DATE, UPDATE_BY, CORRELATIONID, IS_ONLINE)
-		VALUES (?, ?, ?, 'MOBILE', ?, ?, ?, ?, ?, ?, 'YES')`,
-		sessionID, userID, now, token, now, userID, now, userID, correlationID)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE m_mobile_users SET PASSWORD=? WHERE MOBILE_UUID=?", password, mobileUUID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE t_session SET IS_ONLINE = 'NO' WHERE TOKEN != ? AND USER_ID = ?", token, userID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE t_session SET IS_ONLINE='NO' WHERE USER_ID=?", mobileUUID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM mobile_auth_tokens WHERE user_id=? AND purpose='reset'", mobileUUID); err != nil {
 		return err
 	}
 	return tx.Commit()
-}
-
-func (r *Repository) UserIDByRefreshToken(ctx context.Context, refreshToken string) (string, error) {
-	var userID string
-	err := r.db.QueryRowContext(ctx, "SELECT USER_ID FROM t_session WHERE CLIENT_SESSION_ID = ? LIMIT 1", refreshToken).Scan(&userID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	return userID, err
-}
-
-func (r *Repository) UpdateSessionToken(ctx context.Context, refreshToken, token string) error {
-	result, err := r.db.ExecContext(ctx, "UPDATE t_session SET TOKEN = ? WHERE CLIENT_SESSION_ID = ?", token, refreshToken)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (r *Repository) UpdatePassword(ctx context.Context, mobileUUID, password string) error {
-	_, err := r.db.ExecContext(ctx, "UPDATE m_mobile_users SET PASSWORD = ? WHERE MOBILE_UUID = ?", password, mobileUUID)
-	return err
-}
-
-func (r *Repository) ActivateUser(ctx context.Context, mobileUUID, username string) error {
-	_, err := r.db.ExecContext(ctx, "UPDATE m_mobile_users SET USER_STATUS = 'A', UPDATE_DATE = NOW(), UPDATE_BY = ? WHERE MOBILE_UUID = ?", username, mobileUUID)
-	return err
 }
 
 func (r *Repository) Message(ctx context.Context, code, language string) string {

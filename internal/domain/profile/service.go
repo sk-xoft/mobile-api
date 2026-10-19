@@ -108,11 +108,7 @@ func (s *Service) Deactivate(ctx context.Context, userID string) (RegisterRespon
 }
 
 func (s *Service) Activate(ctx context.Context, email string) (RegisterResponse, error) {
-	user, err := s.repository.UpdateStatus(ctx, email, "A")
-	if err != nil {
-		return RegisterResponse{}, err
-	}
-	return RegisterResponse{Username: user.Username, Email: user.Email}, nil
+	return RegisterResponse{}, &BusinessError{Code: "MA00007", Detail: "activation token required"}
 }
 
 type BusinessError struct{ Code, Detail string }

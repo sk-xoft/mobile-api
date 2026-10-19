@@ -1,8 +1,11 @@
 package httpx
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"github.com/gofiber/fiber/v2"
+	"github.com/smartseaman/mobile-api/internal/constants"
+)
 
-const SuccessCode = "MA00000"
+const SuccessCode = constants.CodeSuccess
 
 type Response struct {
 	Code        string `json:"code"`

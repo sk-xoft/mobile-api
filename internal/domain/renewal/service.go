@@ -3,13 +3,18 @@ package renewal
 import (
 	"context"
 	"database/sql"
+	payments "github.com/smartseaman/mobile-api/internal/domain/payment"
 	"strings"
 )
 
-type Service struct{ repository repositoryPort }
+type Service struct {
+	repository repositoryPort
+	payments   *payments.Service
+}
 
 type repositoryPort interface {
 	Statuses(context.Context) ([]statusRow, error)
+	stageCurrentStatus(context.Context, string) (StageCurrentStatus, error)
 	Documents(context.Context) ([]Document, error)
 	Price(context.Context, string) (Price, error)
 	create(context.Context, string, CreateRequest, Price) (CreateResponse, error)
@@ -27,14 +32,16 @@ type repositoryPort interface {
 	updateMobile(context.Context, string, string, string) (TransitionResponse, error)
 	detail(context.Context, string, string) (Detail, error)
 	timeline(context.Context, string, string) (Timeline, error)
-	payment(context.Context, string, string, PaymentRequest) (PaymentResponse, error)
-	paymentStatus(context.Context, string, string, string) (PaymentResponse, error)
 	hardDelete(context.Context, string, string) (TransitionResponse, error)
-	updateWebhook(context.Context, omiseCharge) error
-	Omise() *omiseClient
 }
 
-func NewService(repository repositoryPort) *Service { return &Service{repository: repository} }
+func NewService(repository repositoryPort, paymentServices ...*payments.Service) *Service {
+	service := &Service{repository: repository}
+	if len(paymentServices) > 0 {
+		service.payments = paymentServices[0]
+	}
+	return service
+}
 
 func (s *Service) Statuses(ctx context.Context) ([]Status, error) {
 	rows, err := s.repository.Statuses(ctx)

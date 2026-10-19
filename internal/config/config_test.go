@@ -25,3 +25,21 @@ func TestLoadRejectsInvalidJWTSecret(t *testing.T) {
 		t.Fatal("Load() expected an error")
 	}
 }
+
+func TestPaymentModeMustMatchKeyAndFlagsAreValidated(t *testing.T) {
+	t.Setenv("JWT_SECRET", "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=")
+	t.Setenv("PAYMENT_WORKER_ENABLED", "true")
+	t.Setenv("OMISE_SECRET_KEY", "skey_live_placeholder")
+	t.Setenv("OMISE_LIVE_MODE", "false")
+	if _, err := Load(); err == nil {
+		t.Fatal("live key accepted in test mode")
+	}
+	t.Setenv("OMISE_LIVE_MODE", "true")
+	if _, err := Load(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PAYMENT_WORKER_ENABLED", "invalid")
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid worker flag accepted")
+	}
+}

@@ -21,25 +21,29 @@ func (r *Repository) Banners(ctx context.Context) ([]Banner, error) {
 	result := make([]Banner, 0)
 	for rows.Next() {
 		var item Banner
-		if err := rows.Scan(&item.BannerID, &item.BannerFileName); err != nil {
+		var id, fileName sql.NullString
+		if err := rows.Scan(&id, &fileName); err != nil {
 			return nil, err
 		}
+		item.BannerID, item.BannerFileName = id.String, fileName.String
 		result = append(result, item)
 	}
 	return result, rows.Err()
 }
 func (r *Repository) Banner(ctx context.Context, id string) (Banner, error) {
 	var item Banner
-	err := r.db.QueryRowContext(ctx, "SELECT BANNER_ID,BANNER_FILE_NAME FROM m_banners WHERE BANNER_ID=?", id).Scan(&item.BannerID, &item.BannerFileName)
+	var bannerID, fileName sql.NullString
+	err := r.db.QueryRowContext(ctx, "SELECT BANNER_ID,BANNER_FILE_NAME FROM m_banners WHERE BANNER_ID=?", id).Scan(&bannerID, &fileName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Banner{}, ErrNotFound
 	}
+	item.BannerID, item.BannerFileName = bannerID.String, fileName.String
 	return item, err
 }
 func (r *Repository) UserSmartID(ctx context.Context, userID string) (string, error) {
-	var value string
+	var value sql.NullString
 	err := r.db.QueryRowContext(ctx, "SELECT SMART_SEAMAN_ID FROM m_mobile_users WHERE MOBILE_UUID=? LIMIT 1", userID).Scan(&value)
-	return value, err
+	return value.String, err
 }
 func (r *Repository) Vouchers(ctx context.Context, smartID string) ([]Voucher, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT mv.VOUCHER_ID,mv.VOUCHER_TITLE,mv.VOUCHER_DETAILS,mv.VOUCHER_START_DATE,mv.VOUCHER_END_DATE FROM m_vouchers mv INNER JOIN m_voucher_details mvd ON mv.VOUCHER_ID=mvd.VOUCHER_ID WHERE mv.VOUCHER_STATUS='A' AND mv.VOUCHER_TYPE='PERSONAL' AND mvd.SMART_SEAMAN_ID=? UNION ALL SELECT VOUCHER_ID,VOUCHER_TITLE,VOUCHER_DETAILS,VOUCHER_START_DATE,VOUCHER_END_DATE FROM m_vouchers WHERE VOUCHER_STATUS='A' AND VOUCHER_TYPE='GLOBAL' ORDER BY VOUCHER_ID`, smartID)

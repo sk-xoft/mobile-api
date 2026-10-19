@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"log/slog"
 	"mime"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/smartseaman/mobile-api/internal/domain/eventlog"
+	"go.uber.org/zap"
 )
 
 const (
@@ -23,7 +23,7 @@ const (
 
 var sensitiveFieldNames = map[string]struct{}{
 	"password": {}, "confirmpassword": {}, "oldpassword": {}, "newpassword": {},
-	"token": {}, "tokenfcm": {}, "accesstoken": {}, "refreshtoken": {}, "secret": {}, "jwt": {},
+	"token": {}, "tokenfcm": {}, "accesstoken": {}, "refreshtoken": {}, "reftoken": {}, "uid": {}, "secret": {}, "jwt": {},
 }
 
 var fileFieldNames = map[string]struct{}{
@@ -51,29 +51,34 @@ func RequestLogger(recorders ...EventRecorder) fiber.Handler {
 			status = fiber.StatusInternalServerError
 		}
 
-		slog.Default().Info("http request completed",
-			"request_id", requestID,
-			"trace_id", traceID(c),
-			"method", c.Method(),
-			"path", c.Path(),
-			"status", status,
-			"duration_ms", time.Since(startedAt).Milliseconds(),
-			"request_body", sanitizeRequestBody(c.Get(fiber.HeaderContentType), c.Body()),
-			"response_body", sanitizeResponseBody(c.GetRespHeader(fiber.HeaderContentType), responseBody),
+		zap.L().Info("http request completed",
+			zap.String("request_id", requestID),
+			zap.String("trace_id", traceID(c)),
+			zap.String("method", c.Method()),
+			zap.String("path", c.Path()),
+			zap.Int("status", status),
+			zap.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
+			zap.String("request_body", sanitizeRequestBody(c.Get(fiber.HeaderContentType), c.Body())),
+			zap.String("response_body", sanitizeResponseBody(c.GetRespHeader(fiber.HeaderContentType), responseBody)),
 		)
 		if err != nil || status >= fiber.StatusBadRequest {
-			level := slog.LevelWarn
+			level := zap.WarnLevel
 			if status >= fiber.StatusInternalServerError || err != nil {
-				level = slog.LevelError
+				level = zap.ErrorLevel
 			}
-			slog.Default().Log(c.UserContext(), level, "http request error",
-				"request_id", requestID,
-				"trace_id", traceID(c),
-				"method", c.Method(),
-				"path", c.Path(),
-				"status", status,
-				"error", errorMessage(err),
-			)
+			fields := []zap.Field{
+				zap.String("request_id", requestID),
+				zap.String("trace_id", traceID(c)),
+				zap.String("method", c.Method()),
+				zap.String("path", c.Path()),
+				zap.Int("status", status),
+				zap.String("error", errorMessage(err)),
+			}
+			if level == zap.ErrorLevel {
+				zap.L().Error("http request error", fields...)
+			} else {
+				zap.L().Warn("http request error", fields...)
+			}
 		}
 		if len(recorders) > 0 {
 			actorUserID, _ := c.Locals("user.mobile_uuid").(string)

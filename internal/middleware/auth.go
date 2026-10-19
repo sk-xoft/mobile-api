@@ -26,7 +26,7 @@ func Authenticate(secret string, db *sql.DB) fiber.Handler {
 
 		token, err := jwt.Parse(strings.TrimPrefix(authorization, "Bearer "), func(token *jwt.Token) (any, error) {
 			return []byte(secret), nil
-		}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired(), jwt.WithIssuer("smart-seaman-mobile-api"))
 		if err != nil || !token.Valid {
 			return httpx.Error(c, fiber.StatusUnauthorized, "MA00007", "Invalid token")
 		}
@@ -44,14 +44,14 @@ func Authenticate(secret string, db *sql.DB) fiber.Handler {
 			c.Locals(JWTID, id)
 			var sessionUserID, online string
 			err := db.QueryRowContext(c.UserContext(),
-				"SELECT USER_ID, IS_ONLINE FROM t_session WHERE CLIENT_SESSION_ID = ? LIMIT 1", id,
+				"SELECT s.USER_ID, s.IS_ONLINE FROM t_session s INNER JOIN mobile_auth_sessions a ON a.session_id=s.CLIENT_SESSION_ID WHERE s.CLIENT_SESSION_ID = ? AND a.expires_at>NOW() LIMIT 1", id,
 			).Scan(&sessionUserID, &online)
 			if err != nil || online != "YES" {
 				return httpx.Error(c, fiber.StatusUnauthorized, "MA00026", "Incorrect client session id.")
 			}
 			var databaseUsername string
 			err = db.QueryRowContext(c.UserContext(),
-				"SELECT USERNAME FROM m_mobile_users WHERE MOBILE_UUID = ? LIMIT 1", sessionUserID,
+				"SELECT USERNAME FROM m_mobile_users WHERE MOBILE_UUID = ? AND USER_STATUS='A' LIMIT 1", sessionUserID,
 			).Scan(&databaseUsername)
 			if err != nil || databaseUsername != subject {
 				return httpx.Error(c, fiber.StatusUnauthorized, "MA00016", "Email is not found.")

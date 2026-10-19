@@ -45,6 +45,13 @@ func (c *Client) Put(ctx context.Context, key, contentType string, content []byt
 	return err
 }
 
+func (c *Client) Delete(ctx context.Context, key string) error {
+	if c.client == nil {
+		return fmt.Errorf("object storage is not configured")
+	}
+	return c.client.RemoveObject(ctx, c.bucket, strings.TrimPrefix(key, "/"), minio.RemoveObjectOptions{})
+}
+
 func (c *Client) Get(ctx context.Context, key string) ([]byte, string, error) {
 	if c.client == nil {
 		return nil, "", fmt.Errorf("object storage is not configured")

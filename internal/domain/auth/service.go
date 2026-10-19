@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,12 +27,12 @@ type repositoryPort interface {
 	FindUserByUUID(context.Context, string) (User, error)
 	FindUserByEmail(context.Context, string) (User, error)
 	Register(context.Context, RegisterRequest, string, string, string) error
-	CreateForgotPassword(context.Context, string) error
-	CreateSession(context.Context, string, string, string, string, time.Time) error
-	UserIDByRefreshToken(context.Context, string) (string, error)
-	UpdateSessionToken(context.Context, string, string) error
+	CreateActionToken(context.Context, string, string, string, time.Time) error
+	ConsumeActionToken(context.Context, string, string, string) (User, error)
+	CreateSecureSession(context.Context, string, string, string, string, string, time.Time) error
+	FindRefreshSession(context.Context, string) (string, string, error)
+	RotateRefreshSession(context.Context, string, string, string, string) error
 	UpdatePassword(context.Context, string, string) error
-	ActivateUser(context.Context, string, string) error
 }
 
 type Mailer interface {
@@ -54,8 +57,17 @@ func (s *Service) Register(ctx context.Context, request RegisterRequest) (Regist
 	if err := s.repository.Register(ctx, request, mobileUUID, string(hash), displayName); err != nil {
 		return RegisterResponse{}, err
 	}
+	token, err := randomToken()
+	if err != nil {
+		return RegisterResponse{}, err
+	}
+	if err := s.repository.CreateActionToken(ctx, mobileUUID, "activation", tokenHash(token), s.now().Add(24*time.Hour)); err != nil {
+		return RegisterResponse{}, err
+	}
 	if s.mailer != nil {
-		_ = s.mailer.SendRegistration(request.FirstName+" "+request.LastName, request.Email, mobileUUID)
+		if err := s.mailer.SendRegistration(request.FirstName+" "+request.LastName, request.Email, token); err != nil {
+			return RegisterResponse{}, err
+		}
 	}
 	return RegisterResponse{Username: request.Email, Email: request.Email}, nil
 }
@@ -71,11 +83,17 @@ func (s *Service) RequestPasswordReset(ctx context.Context, request ResetPasswor
 	if err != nil {
 		return RegisterResponse{}, err
 	}
-	if s.mailer != nil {
-		_ = s.mailer.SendPasswordReset(user.FirstName+" "+user.LastName, request.Email, user.MobileUUID)
-	}
-	if err := s.repository.CreateForgotPassword(ctx, user.MobileUUID); err != nil {
+	token, err := randomToken()
+	if err != nil {
 		return RegisterResponse{}, err
+	}
+	if err := s.repository.CreateActionToken(ctx, user.MobileUUID, "reset", tokenHash(token), s.now().Add(30*time.Minute)); err != nil {
+		return RegisterResponse{}, err
+	}
+	if s.mailer != nil {
+		if err := s.mailer.SendPasswordReset(user.FirstName+" "+user.LastName, request.Email, token); err != nil {
+			return RegisterResponse{}, err
+		}
 	}
 	return RegisterResponse{Username: user.Username, Email: user.Email}, nil
 }
@@ -87,18 +105,13 @@ func (s *Service) CompletePasswordReset(ctx context.Context, request ForgotPassw
 	if request.Password != request.ConfirmPassword {
 		return RegisterResponse{}, &BusinessError{Code: "MA00020", Detail: "password"}
 	}
-	user, err := s.repository.FindUserByUUID(ctx, request.UID)
-	if errors.Is(err, ErrNotFound) {
-		return RegisterResponse{}, &BusinessError{Code: "MA00016", Detail: "user"}
-	}
-	if err != nil {
-		return RegisterResponse{}, err
-	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(request.ConfirmPassword), 8)
 	if err != nil {
 		return RegisterResponse{}, err
 	}
-	if err := s.repository.UpdatePassword(ctx, user.MobileUUID, string(hash)); err != nil {
+	user, err := s.repository.ConsumeActionToken(ctx, tokenHash(request.UID), "reset", string(hash))
+	if err != nil {
 		return RegisterResponse{}, err
 	}
 	return RegisterResponse{Username: user.Email, Email: user.Email}, nil
@@ -132,12 +145,16 @@ func (s *Service) Login(ctx context.Context, request LoginRequest, correlationID
 		return LoginResponse{}, &BusinessError{Code: "MA00002", Detail: "user"}
 	}
 
-	refreshToken := uuid.NewString()
-	token, now, err := s.issueToken(user.Username, refreshToken)
+	refreshToken, err := randomToken()
 	if err != nil {
 		return LoginResponse{}, err
 	}
-	if err := s.repository.CreateSession(ctx, refreshToken, user.MobileUUID, token, correlationID, now); err != nil {
+	sessionID := uuid.NewString()
+	token, now, err := s.issueToken(user.Username, sessionID)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	if err := s.repository.CreateSecureSession(ctx, sessionID, user.MobileUUID, token, tokenHash(refreshToken), correlationID, now); err != nil {
 		return LoginResponse{}, err
 	}
 	return LoginResponse{
@@ -150,7 +167,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshToke
 	if refreshToken == "" {
 		return RefreshTokenResponse{}, &BusinessError{Code: "MA00018", Detail: "refToken"}
 	}
-	userID, err := s.repository.UserIDByRefreshToken(ctx, refreshToken)
+	sessionID, userID, err := s.repository.FindRefreshSession(ctx, tokenHash(refreshToken))
 	if errors.Is(err, ErrNotFound) {
 		return RefreshTokenResponse{}, &BusinessError{Code: "MA00009", Detail: "refToken"}
 	}
@@ -164,14 +181,21 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (RefreshToke
 	if err != nil {
 		return RefreshTokenResponse{}, err
 	}
-	token, _, err := s.issueToken(user.Username, refreshToken)
+	if user.Status != "A" {
+		return RefreshTokenResponse{}, ErrNotFound
+	}
+	nextRefresh, err := randomToken()
 	if err != nil {
 		return RefreshTokenResponse{}, err
 	}
-	if err := s.repository.UpdateSessionToken(ctx, refreshToken, token); err != nil {
+	token, _, err := s.issueToken(user.Username, sessionID)
+	if err != nil {
 		return RefreshTokenResponse{}, err
 	}
-	return RefreshTokenResponse{Token: token}, nil
+	if err := s.repository.RotateRefreshSession(ctx, sessionID, tokenHash(refreshToken), tokenHash(nextRefresh), token); err != nil {
+		return RefreshTokenResponse{}, err
+	}
+	return RefreshTokenResponse{Token: token, RefreshToken: nextRefresh}, nil
 }
 
 func (s *Service) ChangePassword(ctx context.Context, username string, request ChangePasswordRequest) (RegisterResponse, error) {
@@ -199,17 +223,8 @@ func (s *Service) ChangePassword(ctx context.Context, username string, request C
 }
 
 func (s *Service) Activate(ctx context.Context, uid string) (RegisterResponse, error) {
-	user, err := s.repository.FindUserByUUID(ctx, uid)
-	if errors.Is(err, ErrNotFound) {
-		return RegisterResponse{}, &BusinessError{Code: "MA00016", Detail: "user"}
-	}
+	user, err := s.repository.ConsumeActionToken(ctx, tokenHash(uid), "activation", "")
 	if err != nil {
-		return RegisterResponse{}, err
-	}
-	if user.Status == "A" {
-		return RegisterResponse{}, &BusinessError{Code: "MA00022", Detail: "user"}
-	}
-	if err := s.repository.ActivateUser(ctx, uid, user.Username); err != nil {
 		return RegisterResponse{}, err
 	}
 	return RegisterResponse{Username: user.Username, Email: user.Email}, nil
@@ -226,4 +241,16 @@ func (s *Service) issueToken(username, tokenID string) (string, time.Time, error
 		return "", time.Time{}, fmt.Errorf("sign token: %w", err)
 	}
 	return token, now, nil
+}
+
+func randomToken() (string, error) {
+	var value [32]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value[:]), nil
+}
+func tokenHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
