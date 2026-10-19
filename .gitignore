@@ -1,0 +1,31 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Go build/test artifacts
+/bin/
+/tmp/
+*.test
+*.out
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Coverage and profiling output
+coverage.out
+coverage.html
+*.prof
+
+# Hot reload / local tooling
+.air.toml.local
+.air/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
