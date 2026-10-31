@@ -281,48 +281,9 @@ func (r *Repository) validateResponseWithDocument(ctx context.Context, row reque
 	if addressErr != nil {
 		return ValidateResponse{}, addressErr
 	}
-	items, err := r.db.QueryContext(ctx, `SELECT i.id,COALESCE(p.id,''),m.document_master_items_code,m.storage_scope,COALESCE(p.document_type,''),COALESCE(m.document_master_items_name,''),m.sort_order,CASE WHEN COALESCE(p.file_uploaded,0)=1 THEN 1 ELSE 0 END,CASE WHEN COALESCE(p.file_uploaded,0)=1 THEN 'COMPLETE' WHEN p.id IS NULL AND m.storage_scope='PROFILE' THEN 'MISSING' ELSE 'INCOMPLETE' END,COALESCE(p.file_path,''),COALESCE(DATE_FORMAT(p.file_uploaded_at,'%Y-%m-%dT%H:%i:%sZ'),''),COALESCE(p.check_result,''),COALESCE(p.check_note,'') FROM m_document_request_items i INNER JOIN m_document_master_request_item m ON m.document_master_items_code=i.document_master_request_item_code LEFT JOIN m_document_profile_request_item p ON p.id=(SELECT MIN(p2.id) FROM m_document_profile_request_item p2 WHERE p2.mobile_user_uuid=? AND p2.document_master_request_item_code=i.document_master_request_item_code) WHERE i.request_id=? ORDER BY m.sort_order,i.id`, row.UserID, row.ID)
+	response.Items, err = r.requestItems(ctx, row, code)
 	if err != nil {
 		return ValidateResponse{}, err
-	}
-	for items.Next() {
-		var item ValidateItem
-		if err := items.Scan(&item.ID, &item.ProfileID, &item.ItemCode, &item.StorageScope, &item.DocumentType, &item.DocumentName, &item.SortOrder, &item.FileUploaded, &item.DocumentStatus, &item.FilePath, &item.FileUploadedAt, &item.CheckResult, &item.CheckNote); err != nil {
-			items.Close()
-			return ValidateResponse{}, err
-		}
-		item.DocumentCode = code
-		response.Items = append(response.Items, item)
-	}
-	itemsErr := items.Err()
-	items.Close()
-	if itemsErr != nil {
-		return ValidateResponse{}, itemsErr
-	}
-	if len(response.Items) == 0 {
-		return ValidateResponse{}, &BusinessError{Code: "MA00013", Detail: "documentRenewalRequestItems"}
-	}
-	// Release item rows before loading files, so even a one-connection pool works.
-	files, err := r.validateFilesBatch(ctx, row, response.Items)
-	if err != nil {
-		return ValidateResponse{}, err
-	}
-	for index := range response.Items {
-		item := &response.Items[index]
-		item.Files = files[validateFileKey{scope: validateFileScope(item.StorageScope), code: item.ItemCode}]
-
-		item.DocumentStatus = validateItemStatus(*item, item.Files)
-		if item.StorageScope == "REQUEST" {
-			item.FileUploaded = 0
-			if len(item.Files) > 0 {
-				item.FileUploaded = 1
-				item.DocumentType = item.Files[0].DocumentType
-				item.FilePath = item.Files[0].FilePath
-				item.FileUploadedAt = item.Files[0].UploadedAt
-				item.CheckResult = item.Files[0].CheckResult
-				item.CheckNote = item.Files[0].CheckNote
-			}
-		}
 	}
 	return response, nil
 }
@@ -685,18 +646,27 @@ func formatNullableTime(value sql.NullTime) string {
 	return formatTime(value.Time)
 }
 
-func (r *Repository) hardDelete(ctx context.Context, userID, requestNo string) (TransitionResponse, error) {
-	row, err := r.ownedRequest(ctx, userID, "request_no", requestNo)
-	if err != nil {
-		return TransitionResponse{}, err
-	}
+func (r *Repository) hardDelete(ctx context.Context, requestNo string) (TransitionResponse, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return TransitionResponse{}, err
 	}
 	defer tx.Rollback()
-	var lockedID string
-	if err = tx.QueryRowContext(ctx, "SELECT id FROM m_document_request WHERE id=? AND mobile_user_uuid=? FOR UPDATE", row.ID, userID).Scan(&lockedID); err != nil {
+	// Hard delete identifies the request independently of the JWT owner.
+	// Lock only the request row, not a joined row in the shared status master.
+	var row requestRow
+	err = tx.QueryRowContext(ctx, "SELECT id,request_no,document_status_id FROM m_document_request WHERE request_no=? AND is_active='YES' FOR UPDATE", requestNo).Scan(&row.ID, &row.No, &row.StatusID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TransitionResponse{}, ErrNotFound
+	}
+	if err != nil {
+		return TransitionResponse{}, err
+	}
+	err = tx.QueryRowContext(ctx, "SELECT document_status_code FROM m_document_status WHERE id=?", row.StatusID).Scan(&row.StatusCode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TransitionResponse{}, ErrNotFound
+	}
+	if err != nil {
 		return TransitionResponse{}, err
 	}
 	for _, table := range []string{"m_delivery", "m_dept_submission"} {
@@ -719,19 +689,15 @@ func (r *Repository) hardDelete(ctx context.Context, userID, requestNo string) (
 		"UPDATE m_payment_transaction SET parent_transaction_id=NULL WHERE request_id=?",
 		"DELETE FROM m_document_transaction WHERE request_id=?",
 		"DELETE FROM m_payment_transaction WHERE request_id=?",
-		"DELETE FROM m_document_request WHERE id=? AND mobile_user_uuid=?",
+		"DELETE FROM m_document_request WHERE id=?",
 	}
 	for _, query := range queries {
 		var result sql.Result
-		if query == "DELETE FROM m_document_request WHERE id=? AND mobile_user_uuid=?" {
-			result, err = tx.ExecContext(ctx, query, row.ID, userID)
-		} else {
-			result, err = tx.ExecContext(ctx, query, row.ID)
-		}
+		result, err = tx.ExecContext(ctx, query, row.ID)
 		if err != nil {
 			return TransitionResponse{}, fmt.Errorf("hard delete query failed: %w", err)
 		}
-		if query == "DELETE FROM m_document_request WHERE id=? AND mobile_user_uuid=?" {
+		if query == "DELETE FROM m_document_request WHERE id=?" {
 			n, _ := result.RowsAffected()
 			if n != 1 {
 				return TransitionResponse{}, ErrNotFound

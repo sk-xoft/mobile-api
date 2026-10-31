@@ -69,6 +69,7 @@ func registerProtected(router fiber.Router, authMiddleware fiber.Handler, authHa
 	secured.Delete("/document-renewals/requests/:requestNo/hard", renewalHandler.HardDelete)
 	secured.Post("/document-renewals/:requestNo/resubmit", renewalHandler.Resubmit)
 	secured.Get("/document-renewals/:requestNo/timeline", renewalHandler.Timeline)
+	secured.Get("/document-renewals/:requestNo/timeline/:documentMobileStatusCode/status", renewalHandler.TimelineStatus)
 	secured.Get("/document-renewals/:requestNo/stage", renewalHandler.Stage)
 	secured.Get("/document-renewals/:requestNo", renewalHandler.Detail)
 	secured.Post("/document-renewals/:requestId/payments", renewalHandler.Payment)

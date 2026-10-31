@@ -7,6 +7,7 @@
 - สถานะ: อ้างอิง implementation ณ 2026-10-31
 - Handler: `renewal.HardDelete`
 - Authentication: Bearer JWT + active online session
+- Authorization: ไม่ตรวจว่าคำขอเป็นของผู้ใช้ใน JWT; ผู้ใช้ที่ผ่าน authentication สามารถ hard delete คำขอของบัญชีอื่นได้
 - Headers: ต้องมี `Accept-Language`, `devicemodel`, `correlationid`; ดู [กติกากลาง](../COMMON.md)
 
 ## Request
@@ -20,7 +21,7 @@
 ## Business logic
 
 1. trim/uppercase requestNo; ต้องยาว 1–20 ตัว
-2. ค้น active request ของ user และล็อกแถว
+2. ค้น requestNo ที่ is_active=YES โดยไม่กรอง mobile_user_uuid แล้วล็อกแถวใน transaction; อ่าน status master ผ่าน transaction เดียวกัน
 3. ตรวจ information_schema แล้วลบ m_delivery/m_dept_submission ถ้ามี
 4. ลบ payment state/attempts, request files/items/address snapshot, timeline, ledger แล้ว request
 5. พฤติกรรมโค้ดปัจจุบันไม่มี payment-history guard หรือจำกัด document status ใน hardDelete แม้ docs/payments.md และ MIGRATION.md ระบุว่าบล็อกเมื่อมีประวัติ payment
@@ -50,7 +51,6 @@ Query path: `hardDelete` (เลือก branch ตาม business logic ไม
 SQL/source สำหรับตรวจ filter, JOIN และ statements:
 
 - [renewal.hardDelete](../queries/renewal.md#renewalharddelete)
-- [renewal.ownedRequest](../queries/renewal.md#renewalownedrequest)
 
 Common access แยกจาก domain: `t_session`, `mobile_auth_sessions`, `m_mobile_users` (READ โดย Authenticate); `event_logs` (INSERT โดย RequestLogger หลัง handler ใน application wiring) ดู [COMMON.md](../COMMON.md#database-access-ร่วม)
 
@@ -92,4 +92,4 @@ Authentication อาจคืน 401 ตาม [COMMON.md](../COMMON.md#authent
 - [renewal/service.go](../../../internal/domain/renewal/service.go)
 - [renewal/lifecycle_service.go](../../../internal/domain/renewal/lifecycle_service.go)
 
-ตรวจจาก static source เท่านั้น ยังไม่ได้เรียก endpoint, execute SQL หรือยืนยันผลกับ live MySQL/Omise/SMTP/storage
+ทดสอบ handler และ SQL mocks: ผู้ใช้คนละบัญชีลบได้, active filter, one-connection transaction และ rollback เมื่อผิดพลาด ยังไม่ได้ส่ง DELETE จริงหรือ execute SQL กับ live MySQL

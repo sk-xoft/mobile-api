@@ -2,6 +2,9 @@
 
 ประวัติขั้นตอนคำขอ
 
+เส้นนี้คงไว้สำหรับ client เดิม หากต้องการ timeline ตาม mobile status พร้อม items/files
+ให้ใช้ [เส้น timeline status](get-v1-document-renewals-requestno-timeline-documentmobilestatuscode-status.md)
+
 ## Overview
 
 - สถานะ: อ้างอิง implementation ณ 2026-10-31

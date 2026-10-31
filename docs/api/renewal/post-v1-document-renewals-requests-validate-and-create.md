@@ -73,6 +73,7 @@ SQL/source สำหรับตรวจ filter, JOIN และ statements:
 - [renewal.latestActive](../queries/renewal.md#renewallatestactive)
 - [renewal.validateResponse](../queries/renewal.md#renewalvalidateresponse)
 - [renewal.documentInfo](../queries/renewal.md#renewaldocumentinfo)
+- [renewal.requestItems](../queries/renewal.md#renewalrequestitems)
 - [renewal.validateResponseWithDocument](../queries/renewal.md#renewalvalidateresponsewithdocument)
 - [renewal.validateFilesBatch](../queries/renewal.md#renewalvalidatefilesbatch)
 - [renewal.Price](../queries/renewal.md#renewalprice)

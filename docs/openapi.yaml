@@ -1735,6 +1735,7 @@
       "delete": {
         "operationId": "delete_v1_document_renewals_requests__requestNo__hard",
         "summary": "DELETE /v1/document-renewals/requests/{requestNo}/hard",
+        "description": "Permanently delete an active request by requestNo and its child records. Requires a valid JWT and active online session, but does not require the request owner to match the JWT user. Inactive or missing requests return HTTP 400 MA00016.",
         "tags": [
           "document-renewals"
         ],
@@ -3298,6 +3299,109 @@
           }
         ]
       }
+    },
+    "/v1/document-renewals/{requestNo}/timeline/{documentMobileStatusCode}/status": {
+      "get": {
+        "operationId": "getRenewalTimelineByMobileStatus",
+        "summary": "Latest event for a mobile status with current document items",
+        "description": "Requires an active request owned by the JWT user. Maps transaction to_status through m_document_status.document_status_code and filters document_mobile_status_code. Selects the latest actioned_at, breaking ties by transaction id DESC. Missing history returns empty timeline strings with current items. Legacy GET /timeline remains available.",
+        "tags": [
+          "document-renewals"
+        ],
+        "parameters": [
+          {
+            "name": "requestNo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 20,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          },
+          {
+            "name": "documentMobileStatusCode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DOCUMENT_REVIEW",
+                "MARINE_DEPARTMENT_RESULT",
+                "DEPARTMENT_DOCUMENT_PICKUP",
+                "DELIVERING",
+                "DELIVERED"
+              ]
+            }
+          },
+          {
+            "name": "Accept-Language",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "devicemodel",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "correlationid",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest matching transaction and current request document items.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RenewalTimelineStatusEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "MA00005 invalid input, MA00016 request missing/not owned/inactive, or MA00013 missing request-item configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JWT/session/account authentication failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "MA00013 database or response assembly failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3483,6 +3587,185 @@
                 "$ref": "#/components/schemas/Payment"
               }
             ]
+          }
+        }
+      },
+      "RenewalRequestFile": {
+        "type": "object",
+        "required": [
+          "fileId",
+          "documentType",
+          "slotCode",
+          "originalFileName",
+          "mimeType",
+          "fileSize"
+        ],
+        "properties": {
+          "fileId": {
+            "type": "string"
+          },
+          "documentType": {
+            "type": "string"
+          },
+          "slotCode": {
+            "type": "string"
+          },
+          "filePath": {
+            "type": "string"
+          },
+          "originalFileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "fileSize": {
+            "type": "integer"
+          },
+          "fileUploadedAt": {
+            "type": "string"
+          },
+          "checkResult": {
+            "type": "string"
+          },
+          "checkNote": {
+            "type": "string"
+          },
+          "isUpdated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RenewalRequestItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "documentCode",
+          "documentMasterRequestItemCode",
+          "storageScope",
+          "documentStatus",
+          "sortOrder",
+          "fileUploaded"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "profileRequestItemId": {
+            "type": "string"
+          },
+          "documentCode": {
+            "type": "string"
+          },
+          "documentMasterRequestItemCode": {
+            "type": "string"
+          },
+          "storageScope": {
+            "type": "string"
+          },
+          "documentType": {
+            "type": "string"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "documentStatus": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "integer"
+          },
+          "fileUploaded": {
+            "type": "integer"
+          },
+          "filePath": {
+            "type": "string"
+          },
+          "fileUploadedAt": {
+            "type": "string"
+          },
+          "checkResult": {
+            "type": "string"
+          },
+          "checkNote": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RenewalRequestFile"
+            }
+          }
+        }
+      },
+      "RenewalStatusTimeline": {
+        "type": "object",
+        "required": [
+          "date_time",
+          "note"
+        ],
+        "properties": {
+          "date_time": {
+            "type": "string",
+            "description": "Latest matching actioned_at as RFC3339; empty when no event exists."
+          },
+          "note": {
+            "type": "string",
+            "description": "Latest matching transaction note; empty when absent."
+          }
+        }
+      },
+      "RenewalTimelineStatus": {
+        "type": "object",
+        "required": [
+          "requestNo",
+          "documentMobileStatusCode",
+          "timeline",
+          "items"
+        ],
+        "properties": {
+          "requestNo": {
+            "type": "string"
+          },
+          "documentMobileStatusCode": {
+            "type": "string",
+            "enum": [
+              "DOCUMENT_REVIEW",
+              "MARINE_DEPARTMENT_RESULT",
+              "DEPARTMENT_DOCUMENT_PICKUP",
+              "DELIVERING",
+              "DELIVERED"
+            ]
+          },
+          "timeline": {
+            "$ref": "#/components/schemas/RenewalStatusTimeline"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RenewalRequestItem"
+            },
+            "description": "Current uploaded item/file state, shared with validate-and-create; not a historical snapshot."
+          }
+        }
+      },
+      "RenewalTimelineStatusEnvelope": {
+        "type": "object",
+        "required": [
+          "code",
+          "description",
+          "data"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "MA00000"
+          },
+          "description": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RenewalTimelineStatus"
           }
         }
       }

@@ -111,6 +111,17 @@ func (s *Service) Detail(ctx context.Context, userID, no string) (Detail, error)
 func (s *Service) Timeline(ctx context.Context, userID, no string) (Timeline, error) {
 	return s.repository.timeline(ctx, userID, no)
 }
+func (s *Service) TimelineStatus(ctx context.Context, userID, no, mobileStatusCode string) (TimelineStatusResponse, error) {
+	no = strings.ToUpper(strings.TrimSpace(no))
+	if no == "" || len(no) > 20 || !validRequestNo(no) {
+		return TimelineStatusResponse{}, &BusinessError{Code: "MA00005", Detail: "requestNo"}
+	}
+	mobileStatusCode = strings.ToUpper(strings.TrimSpace(mobileStatusCode))
+	if progress(mobileStatusCode) == 0 {
+		return TimelineStatusResponse{}, &BusinessError{Code: "MA00005", Detail: "documentMobileStatusCode"}
+	}
+	return s.repository.timelineStatus(ctx, userID, no, mobileStatusCode)
+}
 func (s *Service) Stage(ctx context.Context, userID, no string) (StageResponse, error) {
 	no = strings.ToUpper(strings.TrimSpace(no))
 	if no == "" || len(no) > 20 || !validRequestNo(no) {
@@ -196,12 +207,12 @@ func (s *Service) CurrentPayment(ctx context.Context, userID, requestID string) 
 	}
 	return s.payments.Current(ctx, userID, requestID)
 }
-func (s *Service) HardDelete(ctx context.Context, userID, requestNo string) (TransitionResponse, error) {
+func (s *Service) HardDelete(ctx context.Context, requestNo string) (TransitionResponse, error) {
 	requestNo = strings.ToUpper(strings.TrimSpace(requestNo))
 	if requestNo == "" || len(requestNo) > 20 {
 		return TransitionResponse{}, &BusinessError{Code: "MA00005", Detail: "requestNo"}
 	}
-	return s.repository.hardDelete(ctx, userID, requestNo)
+	return s.repository.hardDelete(ctx, requestNo)
 }
 func (s *Service) Webhook(ctx context.Context, raw, signature, timestamp string) error {
 	if s.payments == nil {

@@ -51,6 +51,10 @@ func (h *Handler) Timeline(c *fiber.Ctx) error {
 	v, e := h.service.Timeline(c.UserContext(), uid(c), c.Params("requestNo"))
 	return h.result(c, v, e)
 }
+func (h *Handler) TimelineStatus(c *fiber.Ctx) error {
+	v, e := h.service.TimelineStatus(c.UserContext(), uid(c), c.Params("requestNo"), c.Params("documentMobileStatusCode"))
+	return h.result(c, v, e)
+}
 func (h *Handler) Stage(c *fiber.Ctx) error {
 	v, e := h.service.Stage(c.UserContext(), uid(c), c.Params("requestNo"))
 	return h.result(c, v, e)
@@ -72,7 +76,7 @@ func (h *Handler) PaymentStatus(c *fiber.Ctx) error {
 	return h.result(c, v, e)
 }
 func (h *Handler) HardDelete(c *fiber.Ctx) error {
-	v, e := h.service.HardDelete(c.UserContext(), uid(c), c.Params("requestNo"))
+	v, e := h.service.HardDelete(c.UserContext(), c.Params("requestNo"))
 	if e != nil {
 		zap.L().Error("renewal hard delete failed", zap.String("request_no", c.Params("requestNo")), zap.Error(e))
 	}

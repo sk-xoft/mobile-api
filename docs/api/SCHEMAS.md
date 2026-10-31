@@ -927,3 +927,23 @@ Source: [internal/domain/requestitem/model.go](../../internal/domain/requestitem
 | `complete` | `bool` | ส่ง field; pointer อาจเป็น null |
 | `files` | array of [requestitem.File](SCHEMAS.md#requestitemfile) | ส่ง field; pointer อาจเป็น null |
 
+
+## renewal.StatusTimeline
+
+Source: [timeline_status.go](../../internal/domain/renewal/timeline_status.go)
+
+| JSON field | Type | Serialization |
+|---|---|---|
+| `date_time` | string | actioned_at แบบ RFC3339; ว่างเมื่อไม่มี matching event |
+| `note` | string | ว่างเมื่อไม่มี note/event |
+
+## renewal.TimelineStatusResponse
+
+Source: [timeline_status.go](../../internal/domain/renewal/timeline_status.go)
+
+| JSON field | Type | Serialization |
+|---|---|---|
+| `requestNo` | string | ส่งเสมอ |
+| `documentMobileStatusCode` | string | normalized mobile status |
+| `timeline` | [renewal.StatusTimeline](SCHEMAS.md#renewalstatustimeline) | object; ส่งเสมอ |
+| `items` | array of [renewal.ValidateItem](SCHEMAS.md#renewalvalidateitem) | current items/files; ส่งเสมอ |

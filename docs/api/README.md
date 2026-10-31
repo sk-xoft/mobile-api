@@ -18,10 +18,10 @@ SQL catalog เป็น snippets สำหรับอ่านประกอ�
 
 ## ขอบเขต
 
-มี 75 method/routes ที่ register โดยตรง; CORS OPTIONS และ Fiber HEAD ที่ตาม GET ไม่แยกเป็น endpoint ใหม่
+มี 76 method/routes ที่ register โดยตรง; CORS OPTIONS และ Fiber HEAD ที่ตาม GET ไม่แยกเป็น endpoint ใหม่
 Swagger UI `/docs` และ `/docs/*` เปิดเฉพาะ API_DOCS_ENABLED=true ดู [COMMON.md](COMMON.md#optional-documentation-routes)
 มี spec เพิ่มสำหรับ [GET /docs](system/get-docs.md) และ
-[GET /docs/*](system/get-docs-resource.md) รวมเป็น 77 method/routes ในชุดเอกสารนี้
+[GET /docs/*](system/get-docs-resource.md) รวมเป็น 78 method/routes ในชุดเอกสารนี้
 ไม่รวม method ที่มีใน source แต่ไม่ได้ bind route เช่น profile.Activate แบบ email-only
 
 ## auth
@@ -134,6 +134,7 @@ Swagger UI `/docs` และ `/docs/*` เปิดเฉพาะ API_DOCS_ENAB
 | DELETE | `/v1/document-renewals/requests/:requestNo/hard` | [ลบคำขอและข้อมูลลูกถาวร](renewal/delete-v1-document-renewals-requests-requestno-hard.md) |
 | POST | `/v1/document-renewals/:requestNo/resubmit` | [ส่งเอกสารที่แก้ไขแล้วอีกครั้ง](renewal/post-v1-document-renewals-requestno-resubmit.md) |
 | GET | `/v1/document-renewals/:requestNo/timeline` | [ประวัติขั้นตอนคำขอ](renewal/get-v1-document-renewals-requestno-timeline.md) |
+| GET | `/v1/document-renewals/:requestNo/timeline/:documentMobileStatusCode/status` | [ประวัติตาม mobile status พร้อมเอกสาร](renewal/get-v1-document-renewals-requestno-timeline-documentmobilestatuscode-status.md) |
 | GET | `/v1/document-renewals/:requestNo/stage` | [ความคืบหน้า 5 ขั้นตอน](renewal/get-v1-document-renewals-requestno-stage.md) |
 | GET | `/v1/document-renewals/:requestNo` | [รายละเอียดคำขอต่ออายุ](renewal/get-v1-document-renewals-requestno.md) |
 | POST | `/v1/document-renewals/:requestId/payments` | [สร้างหรือ replay payment attempt](renewal/post-v1-document-renewals-requestid-payments.md) |

@@ -221,7 +221,44 @@ actual legacy schema and an Omise test account before release; see the detailed
   one-connection pools and worker shutdown. They do not verify the live Omise
   account or apply the migration to a real MySQL instance.
 
+## Hard-delete request ownership
+
+`DELETE /v1/document-renewals/requests/:requestNo/hard` now selects the active
+request by request number without comparing its owner with the JWT user. JWT,
+active-account, online-session and session-expiry checks remain required by the
+protected route. Any authenticated user can therefore hard delete another user's
+active request. Soft delete, detail, uploads and other request operations retain
+their ownership filters. Inactive requests still return `MA00016`.
+
+The request is locked before child deletion; status reads use the same transaction,
+including with a one-connection pool. All deletes commit or roll back together.
+No schema migration is needed. Handler/SQL-mock regressions cover cross-account
+deletion, missing/inactive filtering and rollback; no real request was deleted.
+
+## Timeline by mobile status
+
+Added `GET /v1/document-renewals/:requestNo/timeline/:documentMobileStatusCode/status`.
+The existing `/timeline` endpoint retains its original history-array response.
+The new endpoint requires the JWT user to own an active request and returns
+`requestNo`, `documentMobileStatusCode`, `timeline: {date_time, note}` and `items`
+inside the standard success envelope. It accepts the five mobile progress codes.
+
+The timeline is the latest transaction whose `to_status` maps through
+`m_document_status.document_status_code` to the requested mobile status, ordered
+by `actioned_at DESC, id DESC`. No matching event yields empty timeline strings.
+Items/files reflect current data rather than a historical snapshot and share the
+validate-and-create assembler, including completion/fix rules and batched
+PROFILE/REQUEST reads. No price, address or certificate-expiry reads are needed.
+Domain reads use 4–5 queries, with at most one file query per scope; this is a
+query-count bound, not a latency measurement. Result sets close before nested
+reads so a one-connection pool works. There is no schema migration or domain write.
+
+Handler and SQL-mock tests cover the response, status filter/latest ordering,
+ownership, input validation, empty history, error propagation and one-connection
+pool behavior. No running API or live MySQL/provider integration was contacted.
+
 ## API documentation
+
 Markdown specifications for the registered method/routes are indexed in
 [docs/api/README.md](docs/api/README.md), with a reusable endpoint template,
 business rules, JSON models and SQL references. These describe static Go source,

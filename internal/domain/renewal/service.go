@@ -32,7 +32,8 @@ type repositoryPort interface {
 	updateMobile(context.Context, string, string, string) (TransitionResponse, error)
 	detail(context.Context, string, string) (Detail, error)
 	timeline(context.Context, string, string) (Timeline, error)
-	hardDelete(context.Context, string, string) (TransitionResponse, error)
+	timelineStatus(context.Context, string, string, string) (TimelineStatusResponse, error)
+	hardDelete(context.Context, string) (TransitionResponse, error)
 }
 
 func NewService(repository repositoryPort, paymentServices ...*payments.Service) *Service {

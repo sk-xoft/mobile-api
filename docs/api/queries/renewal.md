@@ -41,7 +41,7 @@ SELECT id, document_status_code, document_mobile_status_code, document_mobile_st
 
 ## renewal.countFixItems
 
-Source: [internal/domain/renewal/lifecycle.go:593](../../../internal/domain/renewal/lifecycle.go#L593)
+Source: [internal/domain/renewal/lifecycle.go:554](../../../internal/domain/renewal/lifecycle.go#L554)
 
 ```sql
 SELECT COUNT(*) FROM m_document_request_items WHERE request_id=? AND approve_status='FIX'
@@ -49,7 +49,7 @@ SELECT COUNT(*) FROM m_document_request_items WHERE request_id=? AND approve_sta
 
 ## renewal.countIncompleteFixItems
 
-Source: [internal/domain/renewal/lifecycle.go:599](../../../internal/domain/renewal/lifecycle.go#L599)
+Source: [internal/domain/renewal/lifecycle.go:560](../../../internal/domain/renewal/lifecycle.go#L560)
 
 ```sql
 SELECT COUNT(*)
@@ -83,7 +83,7 @@ INSERT INTO m_document_request(id,request_no,mobile_user_uuid,mobile_number,emai
 
 ## renewal.detail
 
-Source: [internal/domain/renewal/lifecycle.go:623](../../../internal/domain/renewal/lifecycle.go#L623)
+Source: [internal/domain/renewal/lifecycle.go:584](../../../internal/domain/renewal/lifecycle.go#L584)
 
 ## renewal.documentInfo
 
@@ -95,10 +95,14 @@ SELECT COALESCE(DOCUMENT_NAME_TH,''),COALESCE(DOCUMENT_NAME_TH,''),COALESCE(DOCU
 
 ## renewal.hardDelete
 
-Source: [internal/domain/renewal/lifecycle.go:688](../../../internal/domain/renewal/lifecycle.go#L688)
+Source: [internal/domain/renewal/lifecycle.go:649](../../../internal/domain/renewal/lifecycle.go#L649)
 
 ```sql
-SELECT id FROM m_document_request WHERE id=? AND mobile_user_uuid=? FOR UPDATE
+SELECT id,request_no,document_status_id FROM m_document_request WHERE request_no=? AND is_active='YES' FOR UPDATE
+```
+
+```sql
+SELECT document_status_code FROM m_document_status WHERE id=?
 ```
 
 ```sql
@@ -138,7 +142,7 @@ DELETE FROM m_payment_transaction WHERE request_id=?
 ```
 
 ```sql
-DELETE FROM m_document_request WHERE id=? AND mobile_user_uuid=?
+DELETE FROM m_document_request WHERE id=?
 ```
 
 ## renewal.latestActive
@@ -151,7 +155,7 @@ SELECT r.id,r.request_no,r.mobile_user_uuid,r.mobile_number,r.email,r.document_c
 
 ## renewal.list
 
-Source: [internal/domain/renewal/lifecycle.go:507](../../../internal/domain/renewal/lifecycle.go#L507)
+Source: [internal/domain/renewal/lifecycle.go:468](../../../internal/domain/renewal/lifecycle.go#L468)
 
 ```sql
 SELECT r.id,r.request_no,r.document_code,s.document_status_code,s.name_en,r.amount,r.submitted_at FROM m_document_request r INNER JOIN m_document_status s ON s.id=r.document_status_id WHERE r.mobile_user_uuid=? AND r.is_active='YES' ORDER BY r.submitted_at DESC LIMIT 10 OFFSET ?
@@ -179,7 +183,7 @@ SELECT COUNT(*) FROM m_document_setting_requires WHERE document_code=? AND is_re
 
 ## renewal.resetFixItems
 
-Source: [internal/domain/renewal/lifecycle.go:611](../../../internal/domain/renewal/lifecycle.go#L611)
+Source: [internal/domain/renewal/lifecycle.go:572](../../../internal/domain/renewal/lifecycle.go#L572)
 
 ```sql
 UPDATE m_document_request_items SET approve_status='PENDING',updated_at=NOW() WHERE request_id=? AND approve_status='FIX'
@@ -203,7 +207,7 @@ SELECT id FROM m_document_status WHERE document_status_code=? AND is_active='YES
 
 ## renewal.timeline
 
-Source: [internal/domain/renewal/lifecycle.go:630](../../../internal/domain/renewal/lifecycle.go#L630)
+Source: [internal/domain/renewal/lifecycle.go:591](../../../internal/domain/renewal/lifecycle.go#L591)
 
 ```sql
 SELECT action,from_status,to_status,note,actioned_at FROM m_document_transaction WHERE request_id=? ORDER BY actioned_at
@@ -211,7 +215,7 @@ SELECT action,from_status,to_status,note,actioned_at FROM m_document_transaction
 
 ## renewal.transition
 
-Source: [internal/domain/renewal/lifecycle.go:527](../../../internal/domain/renewal/lifecycle.go#L527)
+Source: [internal/domain/renewal/lifecycle.go:488](../../../internal/domain/renewal/lifecycle.go#L488)
 
 ```sql
 SELECT document_status_id FROM m_document_request WHERE id=? AND mobile_user_uuid=? AND is_active='YES' FOR UPDATE
@@ -231,7 +235,7 @@ INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,no
 
 ## renewal.updateMobile
 
-Source: [internal/domain/renewal/lifecycle.go:615](../../../internal/domain/renewal/lifecycle.go#L615)
+Source: [internal/domain/renewal/lifecycle.go:576](../../../internal/domain/renewal/lifecycle.go#L576)
 
 ```sql
 UPDATE m_document_request SET mobile_number=?,updated_at=NOW() WHERE id=?
@@ -239,7 +243,7 @@ UPDATE m_document_request SET mobile_number=?,updated_at=NOW() WHERE id=?
 
 ## renewal.validateCreate
 
-Source: [internal/domain/renewal/lifecycle.go:430](../../../internal/domain/renewal/lifecycle.go#L430)
+Source: [internal/domain/renewal/lifecycle.go:391](../../../internal/domain/renewal/lifecycle.go#L391)
 
 ```sql
 SELECT MOBILE_NUMBER,EMAIL FROM m_mobile_users WHERE MOBILE_UUID=?
@@ -279,7 +283,7 @@ Source: [internal/domain/renewal/lifecycle.go:244](../../../internal/domain/rene
 
 ## renewal.validateFilesBatch
 
-Source: [internal/domain/renewal/lifecycle.go:380](../../../internal/domain/renewal/lifecycle.go#L380)
+Source: [internal/domain/renewal/lifecycle.go:341](../../../internal/domain/renewal/lifecycle.go#L341)
 
 ```sql
 SELECT document_master_request_item_code,id,document_type,slot_code,COALESCE(file_path,''),COALESCE(original_file_name,''),COALESCE(mime_type,''),COALESCE(file_size,0),COALESCE(DATE_FORMAT(file_uploaded_at,'%d/%m/%Y %H:%i'),''),COALESCE(check_result,''),COALESCE(check_note,''),COALESCE(is_updated,0) FROM m_document_profile_request_item WHERE mobile_user_uuid=? AND document_master_request_item_code IN (
@@ -305,7 +309,23 @@ SELECT CERT_END_DATE FROM m_certificates WHERE CERT_MOBILE_UUID=? AND CERT_DOCUM
 SELECT a.id,a.first_name,a.last_name,a.address_line,a.province,a.district,a.sub_district,a.postal_code,a.mobile_number,CONCAT_WS(' ',a.address_line,CONCAT('ตำบล',sd.name_in_thai),CONCAT('อำเภอ',d.name_in_thai),CONCAT('จังหวัด',p.name_in_thai),a.postal_code) FROM m_document_request_delivery_address a LEFT JOIN provinces p ON p.code=a.province LEFT JOIN districts d ON d.code=a.district LEFT JOIN subdistricts sd ON sd.code=a.sub_district WHERE a.request_id=? AND a.mobile_user_uuid=? ORDER BY a.created_at DESC,a.id DESC
 ```
 
+
+## renewal.requestItems
+
+Source: [request_items.go](../../../internal/domain/renewal/request_items.go)
+
+Loads item metadata, closes rows, then calls `validateFilesBatch` for PROFILE/REQUEST.
+
 ```sql
 SELECT i.id,COALESCE(p.id,''),m.document_master_items_code,m.storage_scope,COALESCE(p.document_type,''),COALESCE(m.document_master_items_name,''),m.sort_order,CASE WHEN COALESCE(p.file_uploaded,0)=1 THEN 1 ELSE 0 END,CASE WHEN COALESCE(p.file_uploaded,0)=1 THEN 'COMPLETE' WHEN p.id IS NULL AND m.storage_scope='PROFILE' THEN 'MISSING' ELSE 'INCOMPLETE' END,COALESCE(p.file_path,''),COALESCE(DATE_FORMAT(p.file_uploaded_at,'%Y-%m-%dT%H:%i:%sZ'),''),COALESCE(p.check_result,''),COALESCE(p.check_note,'') FROM m_document_request_items i INNER JOIN m_document_master_request_item m ON m.document_master_items_code=i.document_master_request_item_code LEFT JOIN m_document_profile_request_item p ON p.id=(SELECT MIN(p2.id) FROM m_document_profile_request_item p2 WHERE p2.mobile_user_uuid=? AND p2.document_master_request_item_code=i.document_master_request_item_code) WHERE i.request_id=? ORDER BY m.sort_order,i.id
 ```
 
+## renewal.timelineStatus
+
+Source: [timeline_status.go](../../../internal/domain/renewal/timeline_status.go)
+
+Calls `ownedRequest`, selects the latest matching transaction, then `requestItems`.
+
+```sql
+SELECT t.actioned_at,COALESCE(t.note,'') FROM m_document_transaction t INNER JOIN m_document_status s ON s.document_status_code=t.to_status WHERE t.request_id=? AND s.document_mobile_status_code=? ORDER BY t.actioned_at DESC,t.id DESC LIMIT 1
+```
