@@ -4,14 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/smartseaman/mobile-api/internal/config"
 )
 
 func Open(ctx context.Context, cfg config.Database) (*sql.DB, error) {
-	if cfg.DSN == "" {
-		return nil, nil
+	if strings.TrimSpace(cfg.DSN) == "" {
+		return nil, fmt.Errorf("DATABASE_DSN is required; configure a Go MySQL DSN (legacy DB_URL is not supported)")
 	}
 	db, err := sql.Open("mysql", cfg.DSN)
 	if err != nil {

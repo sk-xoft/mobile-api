@@ -95,7 +95,7 @@ To use a repository-local `.env` or another configuration file:
 
 ```bash
 make dev ENV_FILE=.env
-make dev ENV_FILE=/path/to/another/.env
+make dev ENV_FILE=/Users/sk/works/products/smartseaman.com/source-code/config/mobile-api/non-prod/.env
 ```
 
 The default listen address is `:8080`; change it with `APP_ADDRESS`. Air rebuilds
@@ -113,6 +113,18 @@ and `MAIL_USERNAME`/`MAIL_PASSWORD` are not mapped automatically. Supply
 `DATABASE_DSN` in Go MySQL DSN format, `OBJECT_STORE_ACCESS_KEY`/
 `OBJECT_STORE_SECRET_KEY` and `SMTP_USERNAME`/`SMTP_PASSWORD` respectively, plus
 the endpoint/bucket/link settings required by your environment.
+
+The API requires a nonempty `DATABASE_DSN` at startup. A file containing only the
+legacy `DB_URL`/`DB_USERNAME`/`DB_PASSWORD` does not configure the Go database pool.
+Use a DSN such as the following, replacing every placeholder with your settings:
+
+```dotenv
+DATABASE_DSN=app_user:replace-with-password@tcp(127.0.0.1:3306)/smart_seaman?parseTime=true&loc=Asia%2FBangkok
+```
+
+If startup reports `DATABASE_DSN is required`, set this key in the selected env
+file and restart `make dev`. Previously, missing database configuration could
+allow startup with a nil pool and cause a nil pointer panic on requests.
 
 The Make target uses Air from `PATH` or the Go bin directory, falling back to
 `go run` to download and run the pinned version. To install Air explicitly:

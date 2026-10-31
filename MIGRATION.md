@@ -255,6 +255,16 @@ Verification uses Bash syntax checks and a fake Docker executable; no Docker
 daemon, live container deployment, database, SMTP, storage or provider was used.
 The production deployment script remains the legacy Java version.
 
+## Database startup requirement
+
+Startup now rejects a missing or whitespace-only `DATABASE_DSN` before wiring
+repositories, middleware or workers. Previously `database.Open` returned
+`(nil, nil)`, allowing startup followed by nil pointer panics when a request or
+its event logger used the pool. Legacy `DB_URL`/`DB_USERNAME`/`DB_PASSWORD` still
+require conversion to the Go DSN format in the selected environment file.
+There is no migration SQL or credential change in this fix. A startup regression
+test covers empty/whitespace DSNs without contacting a database.
+
 ## Local development configuration
 
 `make dev` now defaults `ENV_FILE` to `../config/mobile-api/non-prod/.env`, resolved
