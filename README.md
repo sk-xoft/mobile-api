@@ -154,6 +154,6 @@ Set `API_DOCS_ENABLED=true` and open `/docs`. The spec is at `/docs/openapi.yaml
 
 ```bash
 
-codex resume 01a19023-de36-7a72-812b-cd5c6b834872
+codex resume 01a19082-58e1-7250-aee8-ad246969e55f
 
 ```
