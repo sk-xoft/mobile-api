@@ -6,7 +6,12 @@ AIR_BIN := $(shell go env GOPATH)/bin/air
 run:
 	go run ./cmd/api
 
+dev: export ENV_FILE ?= $(abspath ../config/mobile-api/non-prod/.env)
 dev:
+	@if [ ! -r "$$ENV_FILE" ]; then \
+		printf '%s\n' "Environment file is not readable: $$ENV_FILE" >&2; \
+		exit 1; \
+	fi
 	@if command -v air >/dev/null 2>&1; then \
 		air -c .air.toml; \
 	elif [ -x "$(AIR_BIN)" ]; then \

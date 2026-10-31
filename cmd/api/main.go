@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,7 +17,15 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load()
+	if envFile := os.Getenv("ENV_FILE"); envFile != "" {
+		if err := godotenv.Load(envFile); err != nil {
+			// Parser errors may contain file contents, including credentials.
+			fmt.Fprintln(os.Stderr, "Unable to load environment file:", envFile)
+			os.Exit(1)
+		}
+	} else {
+		_ = godotenv.Load()
+	}
 	logger, err := logging.New(os.Getenv("LOG_TIMEZONE"))
 	if err != nil {
 		os.Exit(1)

@@ -232,4 +232,40 @@ the documented behavior as an approved contract.
 Optional embedded Swagger UI: set `API_DOCS_ENABLED=true`. Disabled by default; when enabled, documentation is publicly readable. No database migration required. Non-payment request/response schemas remain incomplete.
 
 ## Go 1.26 toolchain
+
 The module requires Go 1.26.0 or newer; production and development Docker builders use `golang:1.26-alpine`. Rebuild container images when deploying. No database migration or API contract changes are required.
+
+## Non-prod deployment script
+
+`deploy-non-prod.sh` now builds this repository's Go multi-stage Dockerfile and
+uses the `smart-seaman-mobile-api:non-prod` image by default. Maven packaging,
+Firebase mounts and the unused `/logs` bind mount were removed. Logs use bounded
+Docker JSON rotation. The external env file must provide the Go keys, including
+nonempty `DATABASE_DSN` and `JWT_SECRET`; legacy Spring aliases are not converted.
+
+Build and preflight checks run before stopping the previous container. Startup
+waits for Docker health and returns nonzero on exit/unhealthy/timeout; there is
+no automatic rollback after replacement. `/health` is a static process probe,
+not an integration readiness check. Port/address and health command stay aligned
+when overriding `CONTAINER_PORT`. Configuration is injected using `--env-file`,
+and the in-container `ENV_FILE` selector is cleared to avoid reading a host path.
+
+Apply SQL manually before deployment; the script does not apply migrations.
+Verification uses Bash syntax checks and a fake Docker executable; no Docker
+daemon, live container deployment, database, SMTP, storage or provider was used.
+The production deployment script remains the legacy Java version.
+
+## Local development configuration
+
+`make dev` now defaults `ENV_FILE` to `../config/mobile-api/non-prod/.env`, resolved
+to an absolute path. Override with `make dev ENV_FILE=/path/to/.env`. Explicit
+files must be readable and parse successfully; errors do not print file contents.
+Existing environment variables retain precedence. Air restarts reload the file,
+but editing the external file alone does not trigger a restart. Without ENV_FILE,
+direct startup and `make run` retain the optional repository-local `.env` behavior.
+File selection does not translate legacy Spring keys: the shared non-prod file
+currently uses `DB_URL`, `DO_SPACES_*` and `MAIL_*`. Configure the corresponding
+Go keys from `.env.example` (including a Go-format `DATABASE_DSN`) before using
+database/storage/email integrations. The shared file was not modified, and no
+API instance or live integration was started during verification.
+No database migration or API contract change is required.

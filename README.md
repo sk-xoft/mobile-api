@@ -37,21 +37,92 @@ docker run --name smart-seaman-mobile-api --rm \
 
 The container listens on port `8080`, runs as a non-root user, and exposes a Docker health check through `/health`. Do not copy secrets into the image; use deployment-secret or environment-variable injection.
 
-## Hot reload
+## Deploy non-prod
 
-For local development, run directly; the Make target detects Air in `PATH`, detects the Go bin directory, or downloads it with `go run`:
+Run the script on the Docker host from a checkout of this Go repository:
+
+```bash
+./deploy-non-prod.sh
+```
+
+Defaults: container `smart-seaman-mobile-api`, image
+`smart-seaman-mobile-api:non-prod`, host port `30000` to container port `8080`,
+and env file `/home/ssmuser/apps/config/mobile-api/non-prod/.env`. Override as needed:
+
+```bash
+ENV_FILE=/path/to/non-prod/.env HOST_PORT=30001 ./deploy-non-prod.sh
+```
+
+The env file must contain nonempty `DATABASE_DSN` (Go MySQL DSN format) and
+`JWT_SECRET`, plus the Go integration settings in `.env.example`; legacy Spring
+`DB_URL`, `DO_SPACES_*` and `MAIL_*` are not translated. The script injects the file
+with Docker, sets `APP_PROFILE=non-prod`, and sets `APP_ADDRESS` to `CONTAINER_PORT`.
+
+The multi-stage Dockerfile builds Go inside Docker; host Go/Maven and a Firebase
+credential mount are not required. The script builds before replacing the existing
+container, then waits up to `HEALTH_TIMEOUT=120` seconds for `/health`. `APP_NAME`,
+`IMAGE_NAME` and `CONTAINER_PORT` can also be overridden. Health is a static process
+probe, not proof that database/storage/payment integrations work. A failure after
+replacement exits nonzero and does not automatically restore the previous container.
+
+Logs go to stdout/stderr and Docker rotates JSON logs (10 MiB × 3). Read them with
+`docker logs smart-seaman-mobile-api`; there is no `/logs` host mount. Apply required
+SQL migrations manually using the [migration guide](migrations/README.md) before
+deployment. The script does not execute SQL. `deploy-prod.sh` still contains the
+legacy Java deployment flow and is not adapted by this change.
+
+## Run dev (hot reload)
+
+1. Install Go 1.26 or newer and run `go mod download` from the repository root.
+2. Prepare `../config/mobile-api/non-prod/.env` using the Go configuration keys in
+   `.env.example` (see the compatibility notes below).
+3. Start the API with Air hot reload:
 
 ```bash
 make dev
 ```
 
-To install Air explicitly:
+`make dev` loads `../config/mobile-api/non-prod/.env` by default (resolved to an
+absolute path and passed to the application through `ENV_FILE`). In this checkout,
+the default is `/Users/sk/works/products/smartseaman.com/source-code/config/mobile-api/non-prod/.env`.
+It stops if the file is missing or unreadable. To select that file explicitly:
+
+```bash
+make dev ENV_FILE=/Users/sk/works/products/smartseaman.com/source-code/config/mobile-api/non-prod/.env
+```
+
+To use a repository-local `.env` or another configuration file:
+
+```bash
+make dev ENV_FILE=.env
+make dev ENV_FILE=/path/to/another/.env
+```
+
+The default listen address is `:8080`; change it with `APP_ADDRESS`. Air rebuilds
+and restarts the API after Go source changes. Stop the process with `Ctrl+C`.
+
+Existing process environment variables take precedence over values in the file.
+The application reloads the selected file on each Air restart; changes to this
+external file alone do not trigger hot reload, so restart `make dev` after editing
+it. `make run` continues to use the
+local `.env` unless `ENV_FILE` is explicitly set.
+
+The selected file must use the Go variable names in `.env.example`. Legacy Spring
+keys such as `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`, `DO_SPACES_KEY`/`DO_SPACES_SECRET`
+and `MAIL_USERNAME`/`MAIL_PASSWORD` are not mapped automatically. Supply
+`DATABASE_DSN` in Go MySQL DSN format, `OBJECT_STORE_ACCESS_KEY`/
+`OBJECT_STORE_SECRET_KEY` and `SMTP_USERNAME`/`SMTP_PASSWORD` respectively, plus
+the endpoint/bucket/link settings required by your environment.
+
+The Make target uses Air from `PATH` or the Go bin directory, falling back to
+`go run` to download and run the pinned version. To install Air explicitly:
 
 ```bash
 make install-air
 ```
 
-Or run the hot-reload development container:
+Alternatively, run the development container, which uses the repository-local
+`.env` through Docker Compose rather than the `make dev` default:
 
 ```bash
 docker compose -f docker-compose.dev.yml up --build
