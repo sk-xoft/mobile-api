@@ -1,6 +1,6 @@
 module github.com/smartseaman/mobile-api
 
-go 1.24
+go 1.26.0
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2

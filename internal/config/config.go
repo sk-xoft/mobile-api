@@ -19,8 +19,9 @@ type Config struct {
 }
 
 type App struct {
-	Address string
-	Profile string
+	DocsEnabled bool
+	Address     string
+	Profile     string
 }
 
 type Database struct {
@@ -70,8 +71,9 @@ type Storage struct {
 func Load() (Config, error) {
 	cfg := Config{
 		App: App{
-			Address: env("APP_ADDRESS", ":8080"),
-			Profile: env("APP_PROFILE", "prod"),
+			DocsEnabled: env("API_DOCS_ENABLED", "false") == "true",
+			Address:     env("APP_ADDRESS", ":8080"),
+			Profile:     env("APP_PROFILE", "prod"),
 		},
 		Database: Database{
 			DSN:             os.Getenv("DATABASE_DSN"),
@@ -116,13 +118,14 @@ func Load() (Config, error) {
 		},
 	}
 
-	for _, flag := range []string{"PAYMENT_WORKER_ENABLED", "OMISE_LIVE_MODE"} {
+	for _, flag := range []string{"API_DOCS_ENABLED", "PAYMENT_WORKER_ENABLED", "OMISE_LIVE_MODE"} {
 		if value := os.Getenv(flag); value != "" {
 			if _, err := strconv.ParseBool(value); err != nil {
 				return Config{}, fmt.Errorf("%s must be a boolean", flag)
 			}
 		}
 	}
+	cfg.App.DocsEnabled, _ = strconv.ParseBool(env("API_DOCS_ENABLED", "false"))
 	cfg.Payment.WorkerEnabled, _ = strconv.ParseBool(env("PAYMENT_WORKER_ENABLED", "true"))
 	cfg.Payment.LiveMode, _ = strconv.ParseBool(env("OMISE_LIVE_MODE", "false"))
 	if strings.HasPrefix(cfg.Payment.SecretKey, "skey_live_") && !cfg.Payment.LiveMode {

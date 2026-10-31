@@ -201,3 +201,9 @@ actual legacy schema and an Omise test account before release; see the detailed
   responses, parallel creation, expiry, replay, late/duplicate successes, rollback,
   one-connection pools and worker shutdown. They do not verify the live Omise
   account or apply the migration to a real MySQL instance.
+
+## API documentation
+Optional embedded Swagger UI: set `API_DOCS_ENABLED=true`. Disabled by default; when enabled, documentation is publicly readable. No database migration required. Non-payment request/response schemas remain incomplete.
+
+## Go 1.26 toolchain
+The module requires Go 1.26.0 or newer; production and development Docker builders use `golang:1.26-alpine`. Rebuild container images when deploying. No database migration or API contract changes are required.

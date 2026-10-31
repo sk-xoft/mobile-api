@@ -4,6 +4,8 @@ Migration target for `../smart-seaman-mobile-api`, preserving the existing HTTP 
 
 ## Run
 
+Requires Go 1.26 or newer. Both Docker build environments use Go 1.26.
+
 1. Copy `.env.example` to `.env` and set the required values. The application loads `.env` automatically for local development.
 2. Set the same database and JWT secret used by the Spring application.
 3. Run `go mod download` and `make run`.
@@ -52,3 +54,13 @@ docker compose -f docker-compose.dev.yml up --build
 The production `Dockerfile` intentionally builds an immutable binary and does not include hot reload.
 
 
+
+## API documentation
+Set `API_DOCS_ENABLED=true` and open `/docs`. The spec is at `/docs/openapi.yaml` (JSON is valid YAML). Payment schemas are detailed; other endpoints currently provide a route inventory, not a complete integration contract.
+
+
+```bash
+
+codex resume 01a19023-de36-7a72-812b-cd5c6b834872
+
+```

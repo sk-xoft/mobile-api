@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"github.com/smartseaman/mobile-api/docs"
 	payments "github.com/smartseaman/mobile-api/internal/domain/payment"
 	paymentmysql "github.com/smartseaman/mobile-api/internal/platform/mysql/payment"
 	paymentprovider "github.com/smartseaman/mobile-api/internal/platform/payment"
@@ -86,6 +87,7 @@ func New(cfg config.Config) (*Application, error) {
 		c.Set("Strict-Transport-Security", "max-age=31536000 ; includeSubDomains")
 		return c.Next()
 	})
+	docs.Register(server, cfg.App.DocsEnabled)
 	objectStorage, err := storage.New(cfg.Storage)
 	if err != nil {
 		return nil, err
