@@ -12,6 +12,12 @@ Requires Go 1.26 or newer. Both Docker build environments use Go 1.26.
 
 The migration is incremental. Routes that have not yet moved return HTTP 501 with code `MIGRATION_PENDING`; they must not receive production traffic until their domain is marked complete in `MIGRATION.md`.
 
+## Database migrations
+
+Database setup and upgrade scripts are collected under `migrations/`. Follow the
+[migration guide](migrations/README.md) for legacy schema prerequisites, execution
+order, and Go API migrations before deploying.
+
 ## Docker
 
 Build the image:
@@ -56,6 +62,10 @@ The production `Dockerfile` intentionally builds an immutable binary and does no
 
 
 ## API documentation
+Endpoint specifications in Markdown, including the shared template, business
+logic, request/response models and database query references, are indexed in
+[docs/api/README.md](docs/api/README.md).
+
 Set `API_DOCS_ENABLED=true` and open `/docs`. The spec is at `/docs/openapi.yaml` (JSON is valid YAML). Payment schemas are detailed; other endpoints currently provide a route inventory, not a complete integration contract.
 
 

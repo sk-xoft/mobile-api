@@ -2,6 +2,25 @@
 
 The compatibility target is the Spring Boot service in `../smart-seaman-mobile-api`.
 
+## Database script inventory
+
+Legacy MVP1 SQL scripts and their original README are collected in
+`migrations/legacy-mvp1/` from
+`../smart-seaman-mobile-api/documents/mvp1/script` (snapshot: 2026-10-31).
+All 25 SQL files retain their original names and contents; `SHA256SUMS` records
+the imported files for integrity checks.
+
+Follow [migrations/README.md](migrations/README.md) to choose between new MVP1
+schema setup and existing-schema upgrades, then apply the Go migrations. This is
+not a complete empty-database bootstrap: legacy core tables/master data are still
+required. Do not recursively execute the directory; it includes destructive reset
+utilities and alternative one-time upgrades. The price seed contains active
+zero-fee placeholders and requires price review before use. Imported reset
+utilities do not clear the Go auth/payment tables.
+
+Verification checks file integrity against the source; no live MySQL migration
+has been performed as part of collecting these scripts.
+
 ## Foundation
 
 - [x] Fiber application bootstrap and graceful shutdown
@@ -203,6 +222,13 @@ actual legacy schema and an Omise test account before release; see the detailed
   account or apply the migration to a real MySQL instance.
 
 ## API documentation
+Markdown specifications for the registered method/routes are indexed in
+[docs/api/README.md](docs/api/README.md), with a reusable endpoint template,
+business rules, JSON models and SQL references. These describe static Go source,
+not live verification. Review [known implementation gaps](docs/api/KNOWN-GAPS.md),
+especially the hard-delete payment-history guard discrepancy, before treating
+the documented behavior as an approved contract.
+
 Optional embedded Swagger UI: set `API_DOCS_ENABLED=true`. Disabled by default; when enabled, documentation is publicly readable. No database migration required. Non-payment request/response schemas remain incomplete.
 
 ## Go 1.26 toolchain
