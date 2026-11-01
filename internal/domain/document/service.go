@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/smartseaman/mobile-api/internal/filecontent"
 )
 
 type Service struct {
@@ -149,7 +150,11 @@ func (s *Service) View(ctx context.Context, userID, documentCode string) ([]byte
 	if item.FileName == "" {
 		return nil, "", &BusinessError{Code: "MA00016", Detail: documentCode}
 	}
-	return s.storage.Get(ctx, s.key(userID, item.FileName))
+	content, _, err := s.storage.Get(ctx, s.key(userID, item.FileName))
+	if err != nil {
+		return nil, "", err
+	}
+	return filecontent.DecodeStored(content)
 }
 
 func (s *Service) key(userID, fileName string) string {

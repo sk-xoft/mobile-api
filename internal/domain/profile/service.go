@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/smartseaman/mobile-api/internal/filecontent"
 )
 
 type Storage interface {
@@ -93,7 +94,11 @@ func (s *Service) Image(ctx context.Context, userID string) ([]byte, string, err
 	if user.ProfilePicture == "" {
 		return nil, "", &BusinessError{Code: "MA00016", Detail: "profile image"}
 	}
-	return s.storage.Get(ctx, s.profilePath+"/"+user.ProfilePicture)
+	content, _, err := s.storage.Get(ctx, s.profilePath+"/"+user.ProfilePicture)
+	if err != nil {
+		return nil, "", err
+	}
+	return filecontent.DecodeStored(content)
 }
 
 func (s *Service) Deactivate(ctx context.Context, userID string) (RegisterResponse, error) {

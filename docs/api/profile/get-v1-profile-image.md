@@ -4,7 +4,7 @@
 
 ## Overview
 
-- สถานะ: อ้างอิง implementation ณ 2026-10-31
+- สถานะ: อ้างอิง implementation ณ 2026-11-01
 - Handler: `profile.Image`
 - Authentication: Bearer JWT + active online session
 - Headers: ต้องมี `Accept-Language`, `devicemodel`, `correlationid`; ดู [กติกากลาง](../COMMON.md)
@@ -15,8 +15,12 @@
 
 ## Business logic
 
+รองรับ object เดิมที่เก็บเป็น Base64 และ object binary ของ Go โดยส่ง binary bytes
+พร้อม MIME จากเนื้อไฟล์ (PNG/JPEG/PDF ตามชนิดไฟล์); ไม่เขียนหรือแปลง object เดิม
+ไฟล์ผิดรูปแบบและ storage failure คืน technical error
+
 1. ค้น profile picture ของ user ปัจจุบัน
-2. ไม่มีชื่อไฟล์คืน MA00016; อ่าน object แล้วส่ง bytes พร้อม content type จาก storage
+2. ไม่มีชื่อไฟล์คืน MA00016; อ่าน object แล้วส่ง bytes พร้อม Content-Type จากเนื้อไฟล์
 
 ## Database queries
 

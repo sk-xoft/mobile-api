@@ -2,6 +2,64 @@
 
 The compatibility target is the Spring Boot service in `../smart-seaman-mobile-api`.
 
+## Priority parity fixes: stored files and delivery addresses
+
+Profile-image and certificate-view downloads now accept legacy Base64 objects
+and Go binary objects, returning binary PNG/JPEG/PDF with a content type detected
+from the payload. Existing objects are not rewritten. New uploads remain binary;
+rolling back to Java readers still requires a separate file-format strategy.
+Malformed/unsupported stored content and storage failures return technical errors.
+
+Delivery validation now joins province/district/subdistrict master tables by their
+legacy ID foreign keys. Create/update and renewal snapshot creation run in a
+single transaction with user/address locks; renewal creation first locks the
+owned active request. All callback reads use the same transaction connection.
+Request numbers and request UUIDs are supported. If no active master address
+exists, renewal creation inserts a default address and its snapshot atomically;
+otherwise the snapshot source ID is SQL NULL. Updating an owned snapshot preserves
+its mobile number and leaves master defaults unchanged. Duplicate defaults are
+reported as errors; identical updates are accepted. Address DTO lengths and
+numeric postal-code validation now match the legacy constraints.
+
+Verification: Go handler tests cover binary/Base64 downloads and MIME headers;
+SQL mocks cover owner filters, rollback, duplicate snapshot/default handling,
+UUID lookup, and multi-query operations with a one-connection pool. These are
+local regressions, not live MySQL concurrency or real-bucket verification.
+No SQL migration or existing-object conversion is needed for these changes.
+
+See the [source parity audit](docs/migration-parity-audit.md) (2026-11-01) for
+confirmed gaps in renewal creation, detail/mobile/preview contracts, resubmission
+atomicity and payment validation. Checked items below track implementation
+availability; they do not establish full behavioral parity with Spring Boot.
+The [remaining API groups audit](docs/migration-parity-other-apis.md) also records
+legacy profile/certificate file incompatibility, delivery schema/transaction gaps,
+preview/list contracts and validation differences outside the initial payment review.
+
+## Payment provider authentication errors
+
+Payment POST/current GET/transaction GET now return HTTP 503 PAYMENT_UNAVAILABLE
+with `Retry-After: 30` when Omise responds HTTP 401/403, instead of MA00000 with a
+PROCESSING snapshot. The adapter preserves a typed status-only error and pauses
+provider calls for 30 seconds per API process. Pending requests remain unavailable
+during that backoff; after expiry, a busy lease does not hide an uncleared auth
+failure. Successful provider HTTP responses clear the failure. Cached SUCCESS
+attempts still return their confirmed result without provider access. This state
+is process-local and resets on restart; it does not replace database leases.
+
+Existing attempts, active pointers and uncertainty are retained. Errors still
+schedule retry/release the current lease, but do not create ledger rows, mark
+attempts failed or permit replacement charges. The ledger remains absent until
+a verified charge can be applied. Repair the configured key/permissions and resume
+the existing attempt; restarting alone does not repair invalid credentials.
+Non-auth timeouts/dropped responses/409/429/5xx retain conservative reconciliation.
+No database migration or manual payment-state edit is required.
+
+Real HTTP tests use a local fake Omise to cover POST/GET 401/403, cooldown,
+concurrent calls, status-only redaction, lease-busy responses and recovery of an
+existing SENT attempt without another POST. No live charge or database write is
+performed by this verification. The installed Postman CLI predates simulation;
+existing Go HTTP test infrastructure provides the isolated provider instead.
+
 ## Database script inventory
 
 Legacy MVP1 SQL scripts and their original README are collected in

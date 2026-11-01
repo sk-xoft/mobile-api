@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	domain "github.com/smartseaman/mobile-api/internal/domain/payment"
@@ -22,12 +23,18 @@ type Omise struct {
 	BaseURL, SecretKey, WebhookSecret string
 	QRExpire                          time.Duration
 	Client                            *http.Client
+	authFailureUntil                  atomic.Int64
 }
 
 func NewOmise(base, key, webhook string, expiry time.Duration) *Omise {
 	return &Omise{BaseURL: strings.TrimRight(base, "/"), SecretKey: key, WebhookSecret: webhook, QRExpire: expiry, Client: &http.Client{Timeout: 10 * time.Second}}
 }
-func (o *Omise) Ready() bool { return o.SecretKey != "" }
+func (o *Omise) Ready() bool {
+	return o.SecretKey != "" && time.Now().UnixNano() >= o.authFailureUntil.Load()
+}
+func (o *Omise) AuthenticationUnavailable() bool {
+	return o.authFailureUntil.Load() != 0
+}
 func (o *Omise) Create(ctx context.Context, a domain.Attempt) (domain.Charge, error) {
 	form := url.Values{"amount": {strconv.FormatInt(a.Amount, 10)}, "currency": {"THB"}, "description": {"Document renewal " + a.RequestNo}, "ref_id": {a.Reference}, "metadata[payment_attempt_id]": {a.Reference}, "metadata[request_no]": {a.RequestNo}, "source[type]": {a.Input.PaymentMethod}}
 	if a.Input.ReturnURI != "" {
@@ -88,7 +95,7 @@ func (o *Omise) Find(ctx context.Context, a domain.Attempt) (domain.Charge, erro
 }
 func (o *Omise) request(ctx context.Context, method, path string, form url.Values) ([]byte, error) {
 	if !o.Ready() {
-		return nil, fmt.Errorf("payment provider not configured")
+		return nil, domain.Conflict("PAYMENT_UNAVAILABLE")
 	}
 	var body io.Reader
 	if form != nil {
@@ -107,15 +114,19 @@ func (o *Omise) request(ctx context.Context, method, path string, form url.Value
 		return nil, err
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+			o.authFailureUntil.Store(time.Now().Add(domain.ProviderAuthRetryAfterSeconds * time.Second).UnixNano())
+		}
+		return nil, &domain.ProviderHTTPError{StatusCode: response.StatusCode}
+	}
+	o.authFailureUntil.Store(0)
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 2*1024*1024+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(raw) > 2*1024*1024 {
 		return nil, fmt.Errorf("provider response too large")
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("payment provider HTTP %d", response.StatusCode)
 	}
 	return raw, nil
 }

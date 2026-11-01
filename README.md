@@ -142,18 +142,17 @@ docker compose -f docker-compose.dev.yml up --build
 
 The production `Dockerfile` intentionally builds an immutable binary and does not include hot reload.
 
-
-
 ## API documentation
+
 Endpoint specifications in Markdown, including the shared template, business
 logic, request/response models and database query references, are indexed in
 [docs/api/README.md](docs/api/README.md).
 
 Set `API_DOCS_ENABLED=true` and open `/docs`. The spec is at `/docs/openapi.yaml` (JSON is valid YAML). Payment schemas are detailed; other endpoints currently provide a route inventory, not a complete integration contract.
 
-
 ```bash
 
+codex resume 01a19082-58e1-7250-aee8-ad246969e55f
 codex resume 01a19082-58e1-7250-aee8-ad246969e55f
 
 ```

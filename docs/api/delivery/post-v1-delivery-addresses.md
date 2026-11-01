@@ -4,7 +4,7 @@
 
 ## Overview
 
-- สถานะ: อ้างอิง implementation ณ 2026-10-31
+- สถานะ: อ้างอิง implementation ณ 2026-11-01
 - Handler: `delivery.Create`
 - Authentication: Bearer JWT + active online session
 - Headers: ต้องมี `Accept-Language`, `devicemodel`, `correlationid`; ดู [กติกากลาง](../COMMON.md)
@@ -41,7 +41,7 @@ Content-Type: `application/json`; model [delivery.Request](../SCHEMAS.md#deliver
 
 ## Business logic
 
-1. ต้องมีชื่อ นามสกุล ที่อยู่ province,district,subDistrict และ isDefault; postalCode ยาว 5 ตัว
+1. ต้องมีชื่อ นามสกุล ที่อยู่ province,district,subDistrict และ isDefault; postalCode ต้องเป็นเลข 5 ตัว; ชื่อ/นามสกุลและ codes ยาวไม่เกิน 100 ตัว ที่อยู่ไม่เกิน 500 ตัว
 2. ตรวจ codes จังหวัด/อำเภอ/ตำบล/รหัสไปรษณีย์ร่วมกันใน master
 3. อ่านเบอร์จาก user; ถ้าเป็นที่อยู่แรกให้ default แม้ส่ง false
 4. ถ้าตั้ง default ให้ clear default เดิมก่อน INSERT active address
@@ -59,12 +59,13 @@ Content-Type: `application/json`; model [delivery.Request](../SCHEMAS.md#deliver
 | `provinces` | READ |
 | `subdistricts` | READ |
 
-Query path: `ValidAddress` → `UserMobile` → `Count` → `ClearDefault` → `Create` (เลือก branch ตาม business logic ไม่ใช่ลำดับตายตัว)
+Query path: `ValidAddress` → `LockUser` → `LockAddresses` → `Count` → `ClearDefault` → `Create` (เลือก branch ตาม business logic ไม่ใช่ลำดับตายตัว)
 
 SQL/source สำหรับตรวจ filter, JOIN และ statements:
 
 - [delivery.ValidAddress](../queries/delivery.md#deliveryvalidaddress)
-- [delivery.UserMobile](../queries/delivery.md#deliveryusermobile)
+- [delivery.LockUser](../queries/delivery.md#deliverylockuser)
+- [delivery.LockAddresses](../queries/delivery.md#deliverylockaddresses)
 - [delivery.Count](../queries/delivery.md#deliverycount)
 - [delivery.ClearDefault](../queries/delivery.md#deliverycleardefault)
 - [delivery.Create](../queries/delivery.md#deliverycreate)
@@ -73,7 +74,7 @@ Common access แยกจาก domain: `t_session`, `mobile_auth_sessions`, `m
 
 ## Transaction และ side effects
 
-- Transaction: clear default และ INSERT เป็นคนละ statement ไม่มี transaction ครอบทั้ง flow
+- Transaction: ล็อก user/active addresses แล้ว count, clear default และ INSERT ใน transaction เดียว; error จะ rollback
 - Side effects: ไม่มี external side effect
 
 ## Response และ errors

@@ -4,7 +4,7 @@
 
 ## Overview
 
-- สถานะ: อ้างอิง implementation ณ 2026-10-31
+- สถานะ: อ้างอิง implementation ณ 2026-11-01
 - Handler: `delivery.Update`
 - Authentication: Bearer JWT + active online session
 - Headers: ต้องมี `Accept-Language`, `devicemodel`, `correlationid`; ดู [กติกากลาง](../COMMON.md)
@@ -46,10 +46,11 @@ Content-Type: `application/json`; model [delivery.Request](../SCHEMAS.md#deliver
 ## Business logic
 
 1. addressId ต้อง parse UUID ได้
-2. ต้องมีชื่อ นามสกุล ที่อยู่ province,district,subDistrict และ isDefault; postalCode ยาว 5 ตัว
+2. ต้องมีชื่อ นามสกุล ที่อยู่ province,district,subDistrict และ isDefault; postalCode ต้องเป็นเลข 5 ตัว; ชื่อ/นามสกุลและ codes ยาวไม่เกิน 100 ตัว ที่อยู่ไม่เกิน 500 ตัว
 3. ตรวจ codes จังหวัด/อำเภอ/ตำบล/รหัสไปรษณีย์ร่วมกันใน master
 4. อ่านที่อยู่ด้วย id+เจ้าของ+active; ไม่อนุญาตเปลี่ยน default ปัจจุบันเป็น false
-5. ถ้าตั้ง default ให้ clear ค่าเดิมแล้ว UPDATE; affected rows=0 คืน not found
+5. ถ้าตั้ง default ให้ clear ค่าเดิมแล้ว UPDATE ใน transaction เดียว; การส่งค่าเดิมซ้ำยอมรับได้
+6. ถ้าไม่พบ master address ให้ค้น owned renewal snapshot แล้ว UPDATE โดยรักษา mobileNumber เดิม; ไม่ clear default ของ master
 
 ## Database queries
 
@@ -60,10 +61,12 @@ Content-Type: `application/json`; model [delivery.Request](../SCHEMAS.md#deliver
 |---|---|
 | `districts` | READ |
 | `m_delivery_address` | READ, UPDATE |
+| `m_mobile_users` | READ (lock) |
+| `m_document_request_delivery_address` | READ, UPDATE |
 | `provinces` | READ |
 | `subdistricts` | READ |
 
-Query path: `ValidAddress` → `Find` → `ClearDefault` → `Update` (เลือก branch ตาม business logic ไม่ใช่ลำดับตายตัว)
+Query path: `ValidAddress` → `LockUser` → `LockAddresses` → `Find` → `ClearDefault` → `Update`; fallback `FindSnapshot` → `UpdateSnapshot` (เลือก branch ตาม business logic ไม่ใช่ลำดับตายตัว)
 
 SQL/source สำหรับตรวจ filter, JOIN และ statements:
 
@@ -76,7 +79,7 @@ Common access แยกจาก domain: `t_session`, `mobile_auth_sessions`, `m
 
 ## Transaction และ side effects
 
-- Transaction: clear default และ UPDATE ไม่มี transaction ครอบร่วมกัน
+- Transaction: ล็อก user/active addresses และทำ lookup, clear default, UPDATE ใน transaction เดียว; snapshot ใช้ owner filter และ row lock
 - Side effects: ไม่มี external side effect
 
 ## Response และ errors

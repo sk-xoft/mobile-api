@@ -86,7 +86,7 @@ func (h *Handler) View(c *fiber.Ctx) error {
 	if err != nil {
 		return h.fail(c, err)
 	}
-	c.Type(contentType)
+	c.Set(fiber.HeaderContentType, contentType)
 	return c.Send(content)
 }
 func (h *Handler) fail(c *fiber.Ctx, err error) error {

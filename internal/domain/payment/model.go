@@ -3,10 +3,22 @@ package payment
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
 var ErrNotFound = errors.New("payment not found")
+
+const ProviderAuthRetryAfterSeconds = 30
+
+// ProviderHTTPError carries status only: provider bodies may contain sensitive data.
+type ProviderHTTPError struct {
+	StatusCode int
+}
+
+func (e *ProviderHTTPError) Error() string {
+	return fmt.Sprintf("payment provider HTTP %d", e.StatusCode)
+}
 
 type Error struct {
 	Code    string
@@ -96,4 +108,10 @@ type Provider interface {
 	Retrieve(context.Context, string) (Charge, error)
 	Find(context.Context, Attempt) (Charge, error)
 	VerifySignature(string, string, string) bool
+}
+
+// ProviderAuthenticationState lets a cached response retain a known auth failure
+// while another caller holds the reconciliation lease after backoff expires.
+type ProviderAuthenticationState interface {
+	AuthenticationUnavailable() bool
 }

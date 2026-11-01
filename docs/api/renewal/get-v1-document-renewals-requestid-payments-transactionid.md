@@ -56,6 +56,17 @@ SQL/source สำหรับตรวจ filter, JOIN และ statements:
 
 Common access แยกจาก domain: `t_session`, `mobile_auth_sessions`, `m_mobile_users` (READ โดย Authenticate); `event_logs` (INSERT โดย RequestLogger หลัง handler ใน application wiring) ดู [COMMON.md](../COMMON.md#database-access-ร่วม)
 
+## Provider authentication failures
+
+Omise ตอบ 401/403 จะคืน HTTP 503 `PAYMENT_UNAVAILABLE` และ `Retry-After: 30`
+ไม่มี success data snapshot; ไม่ใช้ HTTP 401 ของ JWT แทน error ของ provider
+พัก provider calls 30 วินาทีต่อ process หลังพบปัญหา แล้วอนุญาตให้ probe ใหม่
+ระหว่างติด lease จะไม่คืน success จาก PROCESSING ที่ cache ไว้ถ้า process ยังมี auth failure
+provider HTTP สำเร็จจะ clear failure; restart ล้างเฉพาะสถานะพักนี้ ไม่ได้แก้ key
+เก็บ attempt เดิมและความไม่แน่นอน ไม่สร้าง replacement หรือ ledger ปลอม
+`m_payment_transaction` จะมีข้อมูลเมื่อได้ verified charge แล้วเท่านั้น
+ดูรายละเอียดใน [payment guide](../../payments.md)
+
 ## Transaction และ side effects
 
 - Transaction: reconciliation writes ใช้ request lock และ transaction; provider call อยู่นอก transaction

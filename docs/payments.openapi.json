@@ -121,11 +121,25 @@
             }
           },
           "503": {
-            "description": "Provider unavailable",
+            "description": "PAYMENT_UNAVAILABLE: missing credentials or Omise HTTP 401/403. The attempt is preserved; no replacement is authorized. Provider-auth failures pause calls for 30 seconds per API process. Repair provider credentials/permissions and resume the same attempt.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
+                },
+                "example": {
+                  "code": "PAYMENT_UNAVAILABLE",
+                  "description": "PAYMENT_UNAVAILABLE"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Suggested minimum wait before retrying. Credentials may still require operator repair.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "example": 30
                 }
               }
             }
@@ -197,11 +211,25 @@
             }
           },
           "503": {
-            "description": "Provider unavailable",
+            "description": "PAYMENT_UNAVAILABLE: missing credentials or Omise HTTP 401/403. The attempt is preserved; no replacement is authorized. Provider-auth failures pause calls for 30 seconds per API process. Repair provider credentials/permissions and resume the same attempt.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
+                },
+                "example": {
+                  "code": "PAYMENT_UNAVAILABLE",
+                  "description": "PAYMENT_UNAVAILABLE"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Suggested minimum wait before retrying. Credentials may still require operator repair.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "example": 30
                 }
               }
             }
@@ -319,11 +347,25 @@
             }
           },
           "503": {
-            "description": "Provider unavailable",
+            "description": "PAYMENT_UNAVAILABLE: missing credentials or Omise HTTP 401/403. The attempt is preserved; no replacement is authorized. Provider-auth failures pause calls for 30 seconds per API process. Repair provider credentials/permissions and resume the same attempt.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorEnvelope"
+                },
+                "example": {
+                  "code": "PAYMENT_UNAVAILABLE",
+                  "description": "PAYMENT_UNAVAILABLE"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Suggested minimum wait before retrying. Credentials may still require operator repair.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "example": 30
                 }
               }
             }

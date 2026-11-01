@@ -48,15 +48,33 @@ rather than returning only the transaction summary.
 - 409 `PAYMENT_ALREADY_PAID`: fetch current payment and refresh the request.
 - 409 `PAYMENT_REQUEST_NOT_PAYABLE`: inactive/wrong-state/invalid-amount request.
 - 409 `PAYMENT_RECONCILIATION_REQUIRED`: contact support; no new charge is allowed.
-- 503 `PAYMENT_UNAVAILABLE`: provider credentials/service are not configured.
+- 503 `PAYMENT_UNAVAILABLE`: provider credentials are missing, or the provider
+  returned HTTP 401/403. Includes `Retry-After: 30`; fix credentials/permissions
+  rather than asking the user to log in again. No success payment snapshot is
+  returned with this error.
 
 Creation can return HTTP 200 with `status=PROCESSING` after a provider timeout,
-HTTP error, or dropped response. The durable attempt already exists. Retrying
+HTTP error other than 401/403, or dropped response. The durable attempt already exists. Retrying
 its key or querying status reconciles it; it does **not** blindly POST again.
 This conservative policy also applies to provider 409/429/5xx failures. It can
 require operator investigation if no charge can be located. Never promise
 exactly-once money movement: the guarantee is durable local deduplication,
 provider reference reuse, and detection/reconciliation of unexpected receipts.
+
+Provider HTTP 401/403 is surfaced as HTTP 503 instead of a successful PROCESSING
+snapshot. Each API process pauses Omise calls for 30 seconds after observing this
+failure. Pending API requests during backoff return PAYMENT_UNAVAILABLE before
+acquiring a lease. Once backoff ends, a leased call can probe the provider again;
+a busy lease still returns unavailability while this process has an uncleared
+auth failure. A successful provider HTTP response clears that failure. This
+process-local state resets on restart and is not a cross-instance auth cache.
+Confirmed SUCCESS snapshots remain readable without another provider call.
+
+Auth failures retain the existing attempt, SENT/RESERVED state as applicable,
+active-attempt pointer and retry scheduling. They do not mean a previously sent
+charge did not exist, do not mark the attempt FAILED, and do not authorize a
+replacement charge. Keep the original idempotency key when resuming. Logs record
+the provider HTTP status and transaction ID without provider bodies or keys.
 
 ## Persistence and reconciliation
 
@@ -65,6 +83,8 @@ HTTP calls. `(request_id,idempotency_key)`, provider reference, and non-null
 charge ID are unique. `mobile_payment_request_state` stores the active attempt,
 accepted payment, and review flag. The existing `m_payment_transaction` ledger
 is inserted/updated after a verified charge is available.
+An attempt that only has provider errors may therefore have no corresponding
+`m_payment_transaction` row yet; no unverified accounting record is manufactured.
 
 All reservation/finalization/cancellation/deletion operations lock the parent
 request first. Network calls occur outside DB transactions. A 60-second DB lease

@@ -122,6 +122,8 @@ func (h *Handler) fail(c *fiber.Ctx, e error) error {
 		}
 		if paymentError.Code == "PAYMENT_UNAVAILABLE" {
 			status = 503
+			c.Set("Retry-After", strconv.Itoa(payments.ProviderAuthRetryAfterSeconds))
+			return httpx.Error(c, status, paymentError.Code, paymentError.Code)
 		}
 		return c.Status(status).JSON(httpx.Response{Code: paymentError.Code, Description: paymentError.Code, Data: paymentError.Payment})
 	}

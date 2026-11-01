@@ -162,14 +162,14 @@ func TestServiceUpdateWithAndWithoutFile(t *testing.T) {
 
 func TestServiceEditViewAndDelete(t *testing.T) {
 	repository := &fakeDocumentRepository{certificate: Certificate{DocumentCode: "DOC001", StartDate: "2026-01-01", EndDate: "", FileName: "stored.png", OriginalFileName: "original.png"}}
-	storage := &fakeDocumentStorage{getContent: []byte("file"), getType: "image/png"}
+	storage := &fakeDocumentStorage{getContent: []byte("%PDF-1.7"), getType: "application/pdf"}
 	service := NewService(repository, storage, "documents/%s/certs/%s")
 	edit, err := service.Edit(context.Background(), "user-1", "DOC001")
 	if err != nil || edit.CertEndDateType != "N" || edit.CertEndDate != "9999-99-99" {
 		t.Fatalf("edit = %#v, %v", edit, err)
 	}
 	content, contentType, err := service.View(context.Background(), "user-1", "DOC001")
-	if err != nil || string(content) != "file" || contentType != "image/png" {
+	if err != nil || string(content) != "%PDF-1.7" || contentType != "application/pdf" {
 		t.Fatalf("view = %q, %q, %v", content, contentType, err)
 	}
 	if result, err := service.Delete(context.Background(), "user-1", "DOC001"); err != nil || result != "success" {

@@ -41,7 +41,7 @@ func (h *Handler) Image(c *fiber.Ctx) error {
 	if err != nil {
 		return h.fail(c, err)
 	}
-	c.Type(contentType)
+	c.Set(fiber.HeaderContentType, contentType)
 	return c.Send(content)
 }
 

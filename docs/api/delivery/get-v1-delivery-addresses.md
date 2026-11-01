@@ -4,7 +4,7 @@
 
 ## Overview
 
-- สถานะ: อ้างอิง implementation ณ 2026-10-31
+- สถานะ: อ้างอิง implementation ณ 2026-11-01
 - Handler: `delivery.Default`
 - Authentication: Bearer JWT + active online session
 - Headers: ต้องมี `Accept-Language`, `devicemodel`, `correlationid`; ดู [กติกากลาง](../COMMON.md)
@@ -17,7 +17,7 @@
 
 1. กรองเจ้าของ, is_default=1 และ is_active=YES
 2. join user เพื่ออ่านเบอร์ล่าสุด; join address master เพื่อประกอบ description
-3. เลือก updated_at ล่าสุด ตามด้วย id; ไม่พบคืน MA00016
+3. ต้องมี default เพียงแถวเดียว; ไม่พบคืน MA00016 และซ้ำคืน HTTP 500 MA00013
 
 ## Database queries
 

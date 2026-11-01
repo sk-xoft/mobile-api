@@ -2,14 +2,21 @@ package delivery
 
 import (
 	"context"
-	"github.com/google/uuid"
+	"errors"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 type Service struct{ repository repositoryPort }
 
 type repositoryPort interface {
-	UserMobile(context.Context, string) (string, error)
+	Transact(context.Context, func(repositoryPort) error) error
+	LockUser(context.Context, string) (string, error)
+	LockAddresses(context.Context, string) error
+	FindSnapshot(context.Context, string, string) (Address, error)
+	UpdateSnapshot(context.Context, Address) error
 	ValidAddress(context.Context, string, string, string, string) (bool, error)
 	Default(context.Context, string) (Address, error)
 	Find(context.Context, string, string) (Address, error)
@@ -32,31 +39,54 @@ func (s *Service) Default(ctx context.Context, userID string) (Response, error) 
 	return toResponse(address), nil
 }
 
+// write returns data only after commit succeeds. Every callback read uses the same tx.
+func (s *Service) write(ctx context.Context, action func(repositoryPort) (Address, error)) (Response, error) {
+	var address Address
+	err := s.repository.Transact(ctx, func(repo repositoryPort) error {
+		var err error
+		address, err = action(repo)
+		return err
+	})
+	if err != nil {
+		return Response{}, err
+	}
+	return toResponse(address), nil
+}
+
+func lockAddresses(ctx context.Context, repo repositoryPort, userID string) (string, error) {
+	mobile, err := repo.LockUser(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if err = repo.LockAddresses(ctx, userID); err != nil {
+		return "", err
+	}
+	return mobile, nil
+}
+
 func (s *Service) Create(ctx context.Context, userID string, request Request) (Response, error) {
 	if err := s.validate(ctx, request); err != nil {
 		return Response{}, err
 	}
-	mobile, err := s.repository.UserMobile(ctx, userID)
-	if err != nil {
-		return Response{}, err
-	}
-	count, err := s.repository.Count(ctx, userID)
-	if err != nil {
-		return Response{}, err
-	}
-	isDefault := count == 0 || (request.IsDefault != nil && *request.IsDefault)
-	if isDefault {
-		if err := s.repository.ClearDefault(ctx, userID); err != nil {
-			return Response{}, err
+	return s.write(ctx, func(repo repositoryPort) (Address, error) {
+		mobile, err := lockAddresses(ctx, repo, userID)
+		if err != nil {
+			return Address{}, err
 		}
-	}
-	address := toAddress(uuid.NewString(), userID, request)
-	address.IsDefault = isDefault
-	address.Mobile = mobile
-	if err := s.repository.Create(ctx, address); err != nil {
-		return Response{}, err
-	}
-	return toResponse(address), nil
+		count, err := repo.Count(ctx, userID)
+		if err != nil {
+			return Address{}, err
+		}
+		address := toAddress(uuid.NewString(), userID, request)
+		address.IsDefault = count == 0 || *request.IsDefault
+		address.Mobile = mobile
+		if address.IsDefault {
+			if err = repo.ClearDefault(ctx, userID); err != nil {
+				return Address{}, err
+			}
+		}
+		return address, repo.Create(ctx, address)
+	})
 }
 
 func (s *Service) Update(ctx context.Context, userID, addressID string, request Request) (Response, error) {
@@ -66,59 +96,94 @@ func (s *Service) Update(ctx context.Context, userID, addressID string, request 
 	if err := s.validate(ctx, request); err != nil {
 		return Response{}, err
 	}
-	current, err := s.repository.Find(ctx, userID, addressID)
-	if err != nil {
-		return Response{}, err
-	}
-	if current.IsDefault && (request.IsDefault == nil || !*request.IsDefault) {
-		return Response{}, &BusinessError{Code: "MA00005", Detail: "isDefault"}
-	}
-	if request.IsDefault != nil && *request.IsDefault {
-		if err := s.repository.ClearDefault(ctx, userID); err != nil {
-			return Response{}, err
+	return s.write(ctx, func(repo repositoryPort) (Address, error) {
+		mobile, err := lockAddresses(ctx, repo, userID)
+		if err != nil {
+			return Address{}, err
 		}
-	}
-	address := toAddress(addressID, userID, request)
-	address.IsDefault = request.IsDefault != nil && *request.IsDefault
-	address.Mobile = current.Mobile
-	if err := s.repository.Update(ctx, address); err != nil {
-		return Response{}, err
-	}
-	return toResponse(address), nil
+		current, err := repo.Find(ctx, userID, addressID)
+		address := toAddress(addressID, userID, request)
+		if errors.Is(err, ErrNotFound) {
+			snapshot, err := repo.FindSnapshot(ctx, userID, addressID)
+			if err != nil {
+				return Address{}, err
+			}
+			address.Mobile = snapshot.Mobile
+			address.IsDefault = *request.IsDefault
+			return address, repo.UpdateSnapshot(ctx, address)
+		}
+		if err != nil {
+			return Address{}, err
+		}
+		if current.IsDefault && !*request.IsDefault {
+			return Address{}, &BusinessError{Code: "MA00005", Detail: "isDefault"}
+		}
+		address.IsDefault, address.Mobile = *request.IsDefault, mobile
+		if address.IsDefault {
+			if err = repo.ClearDefault(ctx, userID); err != nil {
+				return Address{}, err
+			}
+		}
+		return address, repo.Update(ctx, address)
+	})
 }
 
 func (s *Service) CreateForRenewal(ctx context.Context, userID, requestNo string, request Request) (Response, error) {
 	if err := s.validate(ctx, request); err != nil {
 		return Response{}, err
 	}
-	requestID, err := s.repository.RenewalRequest(ctx, userID, requestNo)
-	if err != nil {
-		return Response{}, err
+	requestNo = strings.TrimSpace(requestNo)
+	if requestNo == "" || len(requestNo) > 36 {
+		return Response{}, &BusinessError{Code: "MA00005", Detail: "requestNo"}
 	}
-	exists, err := s.repository.SnapshotExists(ctx, requestID, userID)
-	if err != nil {
-		return Response{}, err
-	}
-	if exists {
-		return Response{}, &BusinessError{Code: "MA00017", Detail: "deliveryAddress"}
-	}
-	address := toAddress("", userID, request)
-	mobile, err := s.repository.UserMobile(ctx, userID)
-	if err != nil {
-		return Response{}, err
-	}
-	snapshotID, err := s.repository.InsertSnapshot(ctx, requestID, userID, mobile, address)
-	if err != nil {
-		return Response{}, err
-	}
-	address.ID, address.Mobile = snapshotID, mobile
-	return toResponse(address), nil
+	return s.write(ctx, func(repo repositoryPort) (Address, error) {
+		// Lock the request before the user, as in the legacy renewal flow.
+		requestID, err := repo.RenewalRequest(ctx, userID, requestNo)
+		if err != nil {
+			return Address{}, err
+		}
+		exists, err := repo.SnapshotExists(ctx, requestID, userID)
+		if err != nil {
+			return Address{}, err
+		}
+		if exists {
+			return Address{}, &BusinessError{Code: "MA00017", Detail: "deliveryAddress"}
+		}
+		mobile, err := lockAddresses(ctx, repo, userID)
+		if err != nil {
+			return Address{}, err
+		}
+		count, err := repo.Count(ctx, userID)
+		if err != nil {
+			return Address{}, err
+		}
+		address := toAddress("", userID, request)
+		address.Mobile, address.IsDefault = mobile, count == 0
+		if count == 0 {
+			address.ID = uuid.NewString()
+			if err = repo.ClearDefault(ctx, userID); err != nil {
+				return Address{}, err
+			}
+			if err = repo.Create(ctx, address); err != nil {
+				return Address{}, err
+			}
+		}
+		snapshotID, err := repo.InsertSnapshot(ctx, requestID, userID, mobile, address)
+		if err != nil {
+			return Address{}, err
+		}
+		address.ID = snapshotID
+		return address, nil
+	})
 }
 
 func (s *Service) validate(ctx context.Context, request Request) error {
 	if strings.TrimSpace(request.FirstName) == "" || strings.TrimSpace(request.LastName) == "" || strings.TrimSpace(request.AddressLine) == "" ||
 		strings.TrimSpace(request.Province) == "" || strings.TrimSpace(request.District) == "" || strings.TrimSpace(request.SubDistrict) == "" ||
-		len(request.PostalCode) != 5 || request.IsDefault == nil {
+		!validPostalCode(request.PostalCode) || request.IsDefault == nil ||
+		utf8.RuneCountInString(request.FirstName) > 100 || utf8.RuneCountInString(request.LastName) > 100 ||
+		utf8.RuneCountInString(request.AddressLine) > 500 || utf8.RuneCountInString(request.Province) > 100 ||
+		utf8.RuneCountInString(request.District) > 100 || utf8.RuneCountInString(request.SubDistrict) > 100 {
 		return &BusinessError{Code: "MA00005", Detail: "address"}
 	}
 	valid, err := s.repository.ValidAddress(ctx, request.Province, request.District, request.SubDistrict, request.PostalCode)
@@ -129,6 +194,18 @@ func (s *Service) validate(ctx context.Context, request Request) error {
 		return &BusinessError{Code: "MA00005", Detail: "address"}
 	}
 	return nil
+}
+
+func validPostalCode(value string) bool {
+	if len(value) != 5 {
+		return false
+	}
+	for _, c := range value {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func toAddress(id, userID string, request Request) Address {

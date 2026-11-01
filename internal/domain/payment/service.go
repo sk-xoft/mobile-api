@@ -166,10 +166,21 @@ func (s *Service) reconcile(ctx context.Context, a Attempt, force bool) (Attempt
 	if a.Status == "SUCCESS" {
 		return a, nil
 	}
+	// Check before acquiring a lease: a recent provider auth failure must not be
+	// hidden by returning a cached PROCESSING snapshot during the DB cooldown.
+	if !s.provider.Ready() {
+		return a, Conflict("PAYMENT_UNAVAILABLE")
+	}
 	token := uuid.NewString()
 	ok, err := s.store.Acquire(ctx, a.ID, token, force)
-	if err != nil || !ok {
+	if err != nil {
 		return a, err
+	}
+	if !ok {
+		if state, supported := s.provider.(ProviderAuthenticationState); supported && state.AuthenticationUnavailable() {
+			return a, Conflict("PAYMENT_UNAVAILABLE")
+		}
+		return a, nil
 	}
 	a, err = s.store.Get(ctx, a.ID)
 	if err != nil {
@@ -192,9 +203,17 @@ func (s *Service) reconcile(ctx context.Context, a Attempt, force bool) (Attempt
 		charge, err = s.provider.Find(ctx, a)
 	}
 	if err != nil {
+		var providerHTTP *ProviderHTTPError
+		authFailure := errors.As(err, &providerHTTP) && (providerHTTP.StatusCode == 401 || providerHTTP.StatusCode == 403)
+		if authFailure {
+			zap.L().Error("payment provider authentication failed", zap.String("transaction_id", a.ID), zap.Int("provider_http_status", providerHTTP.StatusCode))
+		}
 		// A timeout never proves that no charge was created. Never POST again here.
 		if e := s.store.Retry(ctx, a, false); e != nil {
 			return a, e
+		}
+		if authFailure || !s.provider.Ready() {
+			return a, Conflict("PAYMENT_UNAVAILABLE")
 		}
 		if s.now().Sub(a.CreatedAt) > 15*time.Minute {
 			zap.L().Error("payment reconciliation overdue", zap.String("transaction_id", a.ID))
