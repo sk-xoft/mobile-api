@@ -17,6 +17,13 @@ RUN apk add --no-cache ca-certificates tzdata wget \
 	&& addgroup -S app \
 	&& adduser -S -G app app
 
+ARG APP_VERSION=dev
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=unknown
+ENV APP_VERSION=$APP_VERSION \
+    APP_COMMIT=$APP_COMMIT \
+    APP_BUILD_DATE=$APP_BUILD_DATE
+
 ENV TZ=Asia/Bangkok
 
 WORKDIR /app

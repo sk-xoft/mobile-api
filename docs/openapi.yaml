@@ -469,17 +469,49 @@
     },
     "/health": {
       "get": {
-        "operationId": "get_health",
-        "summary": "GET /health",
-        "tags": [
-          "System"
-        ],
+        "summary": "Process health and release metadata",
+        "description": "Liveness only; does not verify database or external services. Dates are UTC RFC3339 when supplied by deploy-non-prod.sh; absent metadata is unknown (version defaults to dev). Metadata is public.",
+        "security": [],
         "responses": {
           "200": {
-            "description": "Successful response; refer to implementation for endpoint-specific payload."
+            "description": "Process is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "version",
+                    "commit",
+                    "buildDate",
+                    "deployedAt",
+                    "deployedBy"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "commit": {
+                      "type": "string"
+                    },
+                    "buildDate": {
+                      "type": "string"
+                    },
+                    "deployedAt": {
+                      "type": "string"
+                    },
+                    "deployedBy": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           }
-        },
-        "security": []
+        }
       }
     },
     "/privacy_policy": {

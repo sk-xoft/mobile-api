@@ -408,3 +408,12 @@ with code 1. Previously an invalid LOG_TIMEZONE could cause a restart loop with
 empty Docker logs. Use an IANA timezone such as Asia/Bangkok, or omit the variable
 to use that default. Docker --env-file values must not include shell-style quotes.
 Rebuild the image to receive the diagnostic; no database migration is required.
+
+## Health release metadata (2026-11-14)
+
+GET /health preserves HTTP 200 and status UP and adds version, commit, buildDate,
+deployedAt and deployedBy. It remains liveness only, with no dependency queries.
+The non-prod script supplies image build metadata and container deployment metadata.
+Rebuild/redeploy to populate it; no SQL migration is required. Dates are UTC
+RFC3339; metadata absent from other launch methods uses dev/unknown defaults.
+Metadata is public, so DEPLOYED_BY should be a public team or CI label.

@@ -255,3 +255,21 @@ docker exec smart-seaman-mobile-api wget -S -O- http://127.0.0.1:8080/health
 
 Use the configured CONTAINER_PORT if it differs from 8080. Probe output identifies
 HTTP failures versus connection failures; application logs identify startup errors.
+
+### Health release metadata
+
+`GET /health` returns `status`, `version`, `commit`, `buildDate`, `deployedAt`,
+and `deployedBy`. It remains a process liveness check. Dates use UTC RFC3339.
+Non-prod deployment records build/deploy timestamps automatically; version defaults
+to the short Git commit, and deployer defaults to SUDO_USER or the current OS user.
+Override the public release version and deployer label when deploying:
+
+```bash
+APP_VERSION=1.2.0 DEPLOYED_BY=release-team ./deploy-non-prod.sh
+```
+
+These fields are public; use a team or CI label rather than private contact details.
+For direct Docker builds pass APP_VERSION, APP_COMMIT and APP_BUILD_DATE as build
+arguments; pass APP_DEPLOYED_AT and APP_DEPLOYED_BY at container creation.
+Local runs default to version dev and unknown metadata. Recreating a container
+without deployment metadata does not infer a deployment date from process startup.

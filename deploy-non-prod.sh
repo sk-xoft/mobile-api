@@ -66,7 +66,14 @@ log "Env file: ${ENV_FILE}"
 
 log "[2/5] Building Go application with the Docker multi-stage build"
 # Build successfully before stopping the running service. Do not delete the old image.
-docker build --file "$SCRIPT_DIR/Dockerfile" --tag "$IMAGE_NAME" "$SCRIPT_DIR"
+APP_COMMIT="${APP_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || printf unknown)}"
+APP_VERSION="${APP_VERSION:-$APP_COMMIT}"
+APP_BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+DEPLOYED_BY="${DEPLOYED_BY:-${SUDO_USER:-$(id -un)}}"
+docker build --file "$SCRIPT_DIR/Dockerfile" --tag "$IMAGE_NAME" \
+  --build-arg "APP_VERSION=$APP_VERSION" \
+  --build-arg "APP_COMMIT=$APP_COMMIT" \
+  --build-arg "APP_BUILD_DATE=$APP_BUILD_DATE" "$SCRIPT_DIR"
 
 log "[3/5] Replacing existing container"
 # Listing containers separately avoids treating daemon failures as 'not found'.
@@ -84,6 +91,11 @@ docker run \
   --env-file "$ENV_FILE" \
   --env "ENV_FILE=" \
   --env "APP_PROFILE=non-prod" \
+  --env "APP_VERSION=$APP_VERSION" \
+  --env "APP_COMMIT=$APP_COMMIT" \
+  --env "APP_BUILD_DATE=$APP_BUILD_DATE" \
+  --env "APP_DEPLOYED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --env "APP_DEPLOYED_BY=$DEPLOYED_BY" \
   --env "APP_ADDRESS=:${CONTAINER_PORT}" \
   --log-driver json-file \
   --log-opt max-size=10m \

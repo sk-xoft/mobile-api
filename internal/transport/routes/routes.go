@@ -21,7 +21,7 @@ import (
 
 func Register(app *fiber.App, db *sql.DB, authHandler *auth.Handler, profileHandler *profile.Handler, masterHandler *master.Handler, documentHandler *document.Handler, deliveryHandler *delivery.Handler, fcmHandler *fcm.Handler, renewalHandler *renewal.Handler, contentHandler *content.Handler, catalogHandler *catalog.Handler, notificationHandler *notification.Handler, requestItemHandler *requestitem.Handler, jwtSecret string) {
 	app.Get("/", func(c *fiber.Ctx) error { return c.SendString("Smart Seaman Mobile API") })
-	app.Get("/health", func(c *fiber.Ctx) error { return c.JSON(fiber.Map{"status": "UP"}) })
+	app.Get("/health", healthHandler())
 	app.Get("/privacy_policy", func(c *fiber.Ctx) error { return httpx.Success(c, "success") })
 	app.Post("/v1/payments/omise/webhook", renewalHandler.Webhook)
 
