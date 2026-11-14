@@ -400,3 +400,11 @@ returns empty text), never internal note/note_web. Existing response templates a
 DOCUMENT_REVIEW-only item assembly are retained. Historical rows are not backfilled.
 BOS reads note_web with a NULL-only fallback to legacy note; existing date/tracking
 metadata remains intact for Web consumers. No Web frontend contract change.
+
+## Startup logging diagnostics (2026-11-14)
+
+Logger initialization failures now write a diagnostic to stderr before exiting
+with code 1. Previously an invalid LOG_TIMEZONE could cause a restart loop with
+empty Docker logs. Use an IANA timezone such as Asia/Bangkok, or omit the variable
+to use that default. Docker --env-file values must not include shell-style quotes.
+Rebuild the image to receive the diagnostic; no database migration is required.

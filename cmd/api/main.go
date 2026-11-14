@@ -28,6 +28,9 @@ func main() {
 	}
 	logger, err := logging.New(os.Getenv("LOG_TIMEZONE"))
 	if err != nil {
+		// The structured logger is not available yet. Avoid printing the
+		// supplied value or parser error, which may contain configuration data.
+		fmt.Fprintln(os.Stderr, "Unable to initialize logging: check LOG_TIMEZONE (for example Asia/Bangkok) and system timezone data")
 		os.Exit(1)
 	}
 	cleanupLogging := logging.Install(logger)
