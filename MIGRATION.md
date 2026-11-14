@@ -438,3 +438,13 @@ non-empty shell override takes priority; absent/empty values use the default.
 The script reads only LOG_DIR as literal data and never sources the env file.
 LOG_FILE remains the container path /app/logs/api.log. Changing LOG_DIR requires
 redeployment and does not move existing logs to the new directory.
+
+## Non-prod startup-only health checks (2026-11-14)
+
+The non-prod deployment script now disables image health checks with
+--no-healthcheck and probes HTTP /health via docker exec only until initial
+startup succeeds (up to HEALTH_TIMEOUT). It no longer waits for Docker healthy
+status. There are no scheduled probes after deployment completes, including
+automatic container restarts. The unless-stopped restart policy is unchanged.
+Redeploy to replace existing containers with the new setting; no SQL migration.
+The Dockerfile default remains available to other launch methods.

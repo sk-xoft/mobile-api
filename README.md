@@ -66,7 +66,8 @@ probe, not proof that database/storage/payment integrations work. A failure afte
 replacement exits nonzero and does not automatically restore the previous container.
 
 Logs go to stdout/stderr and Docker rotates JSON logs (10 MiB × 3). Read them with
-`docker logs smart-seaman-mobile-api`; there is no `/logs` host mount. Apply required
+`docker logs smart-seaman-mobile-api`; application logs also persist in the host
+`LOG_DIR/api.log` (see Persistent non-prod logs below). Apply required
 SQL migrations manually using the [migration guide](migrations/README.md) before
 deployment. The script does not execute SQL. `deploy-prod.sh` still contains the
 legacy Java deployment flow and is not adapted by this change.
@@ -241,15 +242,15 @@ ENV_FILE=.env HOST_PORT=30000 ./run-docker-dev.sh down
 - API เริ่มไม่สำเร็จ: ดู `./run-docker-dev.sh logs` และตรวจ Go config/การเชื่อมต่อฐานข้อมูล
 
 
-### Non-prod health check timeout
+### Non-prod startup health check timeout
 
 Deployment waits up to HEALTH_TIMEOUT (default 120 seconds), allowing transient
-unhealthy/restarting states to recover. A running container alone does not confirm
+HTTP failures/restarting states to recover. A running container alone does not confirm
 API health. If it times out, inspect application and health probe output:
 
 ```bash
 docker logs --tail 100 smart-seaman-mobile-api
-docker inspect --format '{{json .State.Health}}' smart-seaman-mobile-api
+docker inspect --format '{{.State.Status}}' smart-seaman-mobile-api
 docker exec smart-seaman-mobile-api wget -S -O- http://127.0.0.1:8080/health
 ```
 
@@ -349,3 +350,10 @@ application process may use a log file. For local runs, optional `LOG_FILE` enab
 file logging; create its parent directory first. Leaving it empty uses stdout only.
 Existing redaction applies equally to both destinations. Failures before logger
 initialization and Go runtime stderr output remain available only in Docker logs.
+
+Non-prod deployment uses `--no-healthcheck` to disable the Dockerfile periodic
+health check. The script calls `/health` only while waiting for initial startup,
+retrying every approximately two seconds until success or HEALTH_TIMEOUT. After
+success it stops probing. Automatic container restarts do not run this script
+again, so they do not trigger another startup HTTP check. The restart policy
+remains `unless-stopped`; manual `/health` requests remain available.

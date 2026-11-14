@@ -130,31 +130,33 @@ docker run \
   --log-driver json-file \
   --log-opt max-size=10m \
   --log-opt max-file=3 \
-  --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:${CONTAINER_PORT}/health || exit 1" \
-  --health-interval 5s \
-  --health-timeout 3s \
-  --health-start-period 10s \
-  --health-retries 3 \
+  --no-healthcheck \
   --publish "${HOST_PORT}:${CONTAINER_PORT}/tcp" \
   "$IMAGE_NAME"
 
-log "[5/5] Waiting for container health (up to ${HEALTH_TIMEOUT}s)"
+log "[5/5] Waiting for startup HTTP health (up to ${HEALTH_TIMEOUT}s)"
 deadline=$((SECONDS + HEALTH_TIMEOUT))
 while (( SECONDS < deadline )); do
   state="$(docker inspect --format '{{.State.Status}}' "$APP_NAME")"
-  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$APP_NAME")"
-  if [[ "$state" == running && "$health" == healthy ]]; then
-    log "Deployment completed: ${APP_NAME} is healthy"
-    exit 0
-  fi
-  if [[ "$state" != running && "$state" != restarting ]] || [[ "$health" == missing ]]; then
-    log "ERROR: Container state=${state}, health=${health}; inspect locally with: docker logs ${APP_NAME}"
+  if [[ "$state" == running ]]; then
+    remaining=$((deadline - SECONDS))
+    (( remaining > 0 )) || break
+    probe_timeout=3
+    if (( remaining < probe_timeout )); then
+      probe_timeout=$remaining
+    fi
+    if docker exec "$APP_NAME" wget --quiet --tries=1 --timeout="$probe_timeout" \
+      --spider "http://127.0.0.1:${CONTAINER_PORT}/health" >/dev/null 2>&1; then
+      log "Deployment completed: ${APP_NAME} startup HTTP check passed; periodic health checks are disabled"
+      exit 0
+    fi
+  elif [[ "$state" != restarting ]]; then
+    log "ERROR: Container state=${state}; inspect locally with: docker logs ${APP_NAME}"
     exit 1
   fi
-  # An unhealthy probe can recover during startup; honor the full timeout.
   sleep 2
 done
-log "ERROR: Health check timed out (state=${state}, health=${health})"
+log "ERROR: Startup HTTP health check timed out (state=${state})"
 log "Inspect application logs: docker logs --tail 100 ${APP_NAME}"
-log "Inspect probe results: docker inspect --format '{{json .State.Health}}' ${APP_NAME}"
+log "Check HTTP manually: docker exec ${APP_NAME} wget -S -O- http://127.0.0.1:${CONTAINER_PORT}/health"
 exit 1
