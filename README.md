@@ -176,3 +176,82 @@ kill $(lsof -ti tcp:8080)
 
 # ถ้ายังไม่ยอมหยุด ให้บังคับปิด
 kill -9 $(lsof -ti tcp:8080)
+
+
+## Docker local development
+
+### เตรียมก่อนรัน
+
+1. เปิด Docker Desktop หรือ OrbStack และติดตั้ง Docker Compose
+2. เข้าโฟลเดอร์ `mobile-api`
+3. เตรียม `../config/mobile-api/non-prod/.env` โดยใช้ชื่อ config ของ Go ตาม `.env.example`
+   เช่น `DATABASE_DSN` และ `JWT_SECRET`
+
+### เริ่มและจัดการ Container
+
+```bash
+./run-docker-dev.sh          # Build image และเริ่มเบื้องหลัง
+./run-docker-dev.sh logs     # ดู logs ต่อเนื่อง (Ctrl+C เพื่อออกจาก logs)
+./run-docker-dev.sh status   # ดูสถานะ Container
+./run-docker-dev.sh restart  # Build และสร้าง Container ใหม่ โหลด env ล่าสุด
+./run-docker-dev.sh down     # หยุดและลบ Container โดยเก็บ cache volume
+./run-docker-dev.sh --help   # ดูตัวเลือกทั้งหมด
+```
+
+API อยู่ที่ `http://localhost:8080` ตรวจ process health ได้ที่
+`http://localhost:8080/health` (ไม่ได้ยืนยันการเชื่อมต่อฐานข้อมูลหรือบริการภายนอก)
+
+ใช้ `Dockerfile.dev` และ Air hot reload เมื่อแก้ไฟล์ Go จะ build และ restart API
+อัตโนมัติ โดย mount source ไปที่ `/app` ไม่ต้องติดตั้ง Go หรือ Air บนเครื่อง
+
+### เลือก Environment file และ Port
+
+ค่าเริ่มต้นใช้ `../config/mobile-api/non-prod/.env` และ host port `8080`
+หากต้องการใช้ `.env` ภายในโปรเจกต์และพอร์ต `30000`:
+
+```bash
+ENV_FILE=.env HOST_PORT=30000 ./run-docker-dev.sh
+ENV_FILE=.env HOST_PORT=30000 ./run-docker-dev.sh logs
+ENV_FILE=.env HOST_PORT=30000 ./run-docker-dev.sh restart
+ENV_FILE=.env HOST_PORT=30000 ./run-docker-dev.sh down
+```
+
+ใช้ overrides เดิมทุกครั้ง และรัน `restart` หลังแก้ environment file
+ภายใน Container ใช้ `APP_ADDRESS=:8080` เสมอ ส่วน `HOST_PORT` กำหนดพอร์ตบนเครื่อง
+เปิดรับเฉพาะ localhost โดย Compose inject config และไม่โหลด `.env` ซ้ำใน Container
+ชื่อ Compose project เริ่มต้นคือ `smart-seaman-mobile-local`
+เปลี่ยนได้ผ่าน `COMPOSE_PROJECT_NAME` โดยใช้ชื่อเดิมกับคำสั่งจัดการครั้งถัดไป
+
+### ฐานข้อมูลและ Migration
+
+สคริปต์ไม่สร้าง MySQL และไม่รัน SQL อัตโนมัติ ให้ apply สคริปต์ตาม
+[migrations/README.md](migrations/README.md) แยกต่างหาก
+หาก MySQL อยู่บนเครื่อง ให้ใช้ `host.docker.internal` แทน `localhost`
+ใน `DATABASE_DSN` เพราะ localhost ภายใน Container หมายถึงตัว Container เอง
+
+ไฟล์ config เริ่มต้นอาจชี้ไปบริการ non-prod หากต้องการแยกข้อมูล local ให้เลือก
+ไฟล์ config ที่ชี้ฐานข้อมูลและบริการ local ของคุณ
+
+### แก้ปัญหาเบื้องต้น
+
+- `Docker is required`: ติดตั้ง Docker Desktop หรือ OrbStack และตรวจว่า `docker` อยู่ใน PATH
+- `Start Docker Desktop or OrbStack first`: เปิด runtime และตรวจ `docker info` ให้สำเร็จ
+- `Environment file is not readable`: ตรวจ path หรือระบุ `ENV_FILE` ให้ตรงไฟล์จริง
+- พอร์ตถูกใช้งาน: เปลี่ยน `HOST_PORT` เช่น `HOST_PORT=30000 ./run-docker-dev.sh`
+- API เริ่มไม่สำเร็จ: ดู `./run-docker-dev.sh logs` และตรวจ Go config/การเชื่อมต่อฐานข้อมูล
+
+
+### Non-prod health check timeout
+
+Deployment waits up to HEALTH_TIMEOUT (default 120 seconds), allowing transient
+unhealthy/restarting states to recover. A running container alone does not confirm
+API health. If it times out, inspect application and health probe output:
+
+```bash
+docker logs --tail 100 smart-seaman-mobile-api
+docker inspect --format '{{json .State.Health}}' smart-seaman-mobile-api
+docker exec smart-seaman-mobile-api wget -S -O- http://127.0.0.1:8080/health
+```
+
+Use the configured CONTAINER_PORT if it differs from 8080. Probe output identifies
+HTTP failures versus connection failures; application logs identify startup errors.

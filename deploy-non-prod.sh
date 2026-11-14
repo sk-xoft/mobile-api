@@ -105,11 +105,14 @@ while (( SECONDS < deadline )); do
     log "Deployment completed: ${APP_NAME} is healthy"
     exit 0
   fi
-  if [[ "$state" != running || "$health" == unhealthy || "$health" == missing ]]; then
+  if [[ "$state" != running && "$state" != restarting ]] || [[ "$health" == missing ]]; then
     log "ERROR: Container state=${state}, health=${health}; inspect locally with: docker logs ${APP_NAME}"
     exit 1
   fi
+  # An unhealthy probe can recover during startup; honor the full timeout.
   sleep 2
 done
-log "ERROR: Health check timed out; inspect locally with: docker logs ${APP_NAME}"
+log "ERROR: Health check timed out (state=${state}, health=${health})"
+log "Inspect application logs: docker logs --tail 100 ${APP_NAME}"
+log "Inspect probe results: docker inspect --format '{{json .State.Health}}' ${APP_NAME}"
 exit 1
