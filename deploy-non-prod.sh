@@ -8,6 +8,7 @@ HOST_PORT="${HOST_PORT:-30000}"
 CONTAINER_PORT="${CONTAINER_PORT:-8080}"
 ENV_FILE="${ENV_FILE:-/home/ssmuser/apps/config/mobile-api/non-prod/.env}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-120}"
+LOG_DIR="${LOG_DIR:-}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
@@ -42,6 +43,21 @@ command -v docker >/dev/null || { log "ERROR: Docker is required"; exit 1; }
 [[ -f "$ENV_FILE" && -r "$ENV_FILE" ]] || { log "ERROR: Env file is missing or unreadable: ${ENV_FILE}"; exit 1; }
 # Resolve relative overrides before switching to the repository directory.
 ENV_FILE="$(cd -- "$(dirname -- "$ENV_FILE")" && pwd)/$(basename -- "$ENV_FILE")"
+# Read only this deployment setting as data; never source the secret env file.
+if [[ -z "$LOG_DIR" ]]; then
+  LOG_DIR="$(awk '
+    index($0, "LOG_DIR=") == 1 {
+      value = substr($0, 9)
+      sub(/\r$/, "", value)
+    }
+    END { printf "%s", value }
+  ' "$ENV_FILE")"
+fi
+LOG_DIR="${LOG_DIR:-/home/ssmuser/apps/logs/mobile-api/non-prod}"
+if [[ "$LOG_DIR" != /* || "$LOG_DIR" == / || "$LOG_DIR" == *","* || "$LOG_DIR" == *\"* || "$LOG_DIR" == *\'* ]]; then
+  log "ERROR: LOG_DIR must be a dedicated absolute directory without quotes or commas"
+  exit 1
+fi
 for port in "$HOST_PORT" "$CONTAINER_PORT"; do
   if [[ ! "$port" =~ ^[0-9]{1,5}$ ]] || (( 10#$port < 1 || 10#$port > 65535 )); then
     log "ERROR: Ports must be integers from 1 to 65535"
@@ -75,6 +91,18 @@ docker build --file "$SCRIPT_DIR/Dockerfile" --tag "$IMAGE_NAME" \
   --build-arg "APP_COMMIT=$APP_COMMIT" \
   --build-arg "APP_BUILD_DATE=$APP_BUILD_DATE" "$SCRIPT_DIR"
 
+# Prepare and verify the persistent log directory before stopping the old service.
+mkdir -p -- "$LOG_DIR"
+LOG_DIR="$(cd -- "$LOG_DIR" && pwd)"
+[[ "$LOG_DIR" != *","* ]] || { log "ERROR: LOG_DIR must not contain commas"; exit 1; }
+docker run --rm --user 0:0 --entrypoint sh \
+  --mount "type=bind,src=${LOG_DIR},dst=/app/logs" "$IMAGE_NAME" \
+  -c 'chown 10001:10001 /app/logs && chmod 750 /app/logs'
+docker run --rm --entrypoint sh \
+  --mount "type=bind,src=${LOG_DIR},dst=/app/logs" "$IMAGE_NAME" \
+  -c 'touch /app/logs/.write-check && rm /app/logs/.write-check'
+log "Persistent application logs: ${LOG_DIR}/api.log"
+
 log "[3/5] Replacing existing container"
 # Listing containers separately avoids treating daemon failures as 'not found'.
 containers="$(docker container ls --all --format '{{.Names}}')"
@@ -97,6 +125,8 @@ docker run \
   --env "APP_DEPLOYED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   --env "APP_DEPLOYED_BY=$DEPLOYED_BY" \
   --env "APP_ADDRESS=:${CONTAINER_PORT}" \
+  --mount "type=bind,src=${LOG_DIR},dst=/app/logs" \
+  --env "LOG_FILE=/app/logs/api.log" \
   --log-driver json-file \
   --log-opt max-size=10m \
   --log-opt max-file=3 \

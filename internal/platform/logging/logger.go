@@ -27,6 +27,18 @@ func New(timeZone string) (*zap.Logger, error) {
 	config.ErrorOutputPaths = []string{"stderr"}
 	config.EncoderConfig.EncodeTime = timeEncoder(location)
 	config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	if path := os.Getenv("LOG_FILE"); path != "" {
+		file, err := newRotatingFile(path, 10*1024*1024)
+		if err != nil {
+			return nil, err
+		}
+		// Both sinks receive the same encoded, redacted application events.
+		return config.Build(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+			return zapcore.NewTee(core, zapcore.NewCore(
+				zapcore.NewJSONEncoder(config.EncoderConfig), zapcore.AddSync(file), config.Level,
+			))
+		}), zap.AddCaller(), zap.AddStacktrace(zap.ErrorLevel), zap.ErrorOutput(os.Stderr))
+	}
 	return config.Build(zap.AddCaller(), zap.AddStacktrace(zap.ErrorLevel), zap.ErrorOutput(os.Stderr))
 }
 

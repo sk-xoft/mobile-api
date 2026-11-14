@@ -14,8 +14,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata wget \
-	&& addgroup -S app \
-	&& adduser -S -G app app
+	&& addgroup -S -g 10001 app \
+	&& adduser -S -u 10001 -G app app
 
 ARG APP_VERSION=dev
 ARG APP_COMMIT=unknown

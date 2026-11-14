@@ -268,8 +268,84 @@ Override the public release version and deployer label when deploying:
 APP_VERSION=1.2.0 DEPLOYED_BY=release-team ./deploy-non-prod.sh
 ```
 
+ตัวอย่างกำหนด version และผู้ deploy เอง:
+
+```bash
+APP_VERSION=1.2.0 DEPLOYED_BY=sarunyook ./deploy-non-prod.sh
+```
+
+หากไม่กำหนด `APP_VERSION` สคริปต์จะใช้ Git commit แบบสั้น เช่น `abc1234`
+เป็น version อัตโนมัติ โดยไม่ได้เพิ่มเลข version เช่น `1.2.0` ให้อัตโนมัติ
+หากไม่มี Git commit จะใช้ `unknown` ส่วนผู้ deploy ใช้ `SUDO_USER`
+หรือชื่อ OS user ที่รันคำสั่ง:
+
+```bash
+./deploy-non-prod.sh
+```
+
+ตรวจข้อมูลหลัง deploy (ใช้ host port เริ่มต้น `30000`):
+
+```bash
+curl -fsS http://localhost:30000/health
+```
+
+ตัวอย่าง response เมื่อกำหนด version และผู้ deploy เอง
+(commit และวันที่เป็นเพียงตัวอย่าง; วันที่เป็น UTC):
+
+```json
+{
+  "status": "UP",
+  "version": "1.2.0",
+  "commit": "abc1234",
+  "buildDate": "2026-11-14T08:00:00Z",
+  "deployedAt": "2026-11-14T08:02:00Z",
+  "deployedBy": "sarunyook"
+}
+```
+
 These fields are public; use a team or CI label rather than private contact details.
 For direct Docker builds pass APP_VERSION, APP_COMMIT and APP_BUILD_DATE as build
 arguments; pass APP_DEPLOYED_AT and APP_DEPLOYED_BY at container creation.
 Local runs default to version dev and unknown metadata. Recreating a container
 without deployment metadata does not infer a deployment date from process startup.
+
+### Persistent non-prod logs
+
+`deploy-non-prod.sh` bind-mounts the host directory
+`/home/ssmuser/apps/logs/mobile-api/non-prod` to `/app/logs`. Application JSON events
+are written to both stdout (`docker logs`) and `api.log`. Files survive container
+replacement. The logger rotates at approximately 10 MiB, retaining `api.log.1`
+and `api.log.2` (about 30 MiB total; a single large event can exceed the limit).
+Rotation limits retention even across deployments; this is not a permanent archive.
+
+```bash
+# Default log directory
+APP_VERSION=1.2.0 DEPLOYED_BY=release-team ./deploy-non-prod.sh
+# Override the host directory; use a dedicated directory per service instance
+LOG_DIR=/home/ssmuser/apps/logs/mobile-api/custom ./deploy-non-prod.sh
+# Follow the active file across rotation
+sudo tail -F /home/ssmuser/apps/logs/mobile-api/non-prod/api.log
+# Docker output remains available
+docker logs -f --tail 100 smart-seaman-mobile-api
+```
+
+The image uses UID/GID `10001:10001`. Before stopping the old container, deployment
+creates the dedicated directory, sets ownership and mode `750` through a temporary
+root container, and verifies writes as the app user. Log files use mode `600`.
+Set `LOG_DIR` in the application env file selected by `ENV_FILE`, without quotes:
+
+```dotenv
+LOG_DIR=/home/ssmuser/apps/logs/mobile-api/non-prod
+```
+
+The final host file is `LOG_DIR/api.log`. Precedence is a non-empty deployment
+shell `LOG_DIR`, then the last `LOG_DIR=` entry in the env file, then the default
+path above. Use a dedicated absolute directory; values are read literally with
+no shell expansion. `LOG_FILE` remains the path inside the container and is set
+automatically by the script to `/app/logs/api.log`.
+
+Only one
+application process may use a log file. For local runs, optional `LOG_FILE` enables
+file logging; create its parent directory first. Leaving it empty uses stdout only.
+Existing redaction applies equally to both destinations. Failures before logger
+initialization and Go runtime stderr output remain available only in Docker logs.

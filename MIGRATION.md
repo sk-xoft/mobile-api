@@ -417,3 +417,24 @@ The non-prod script supplies image build metadata and container deployment metad
 Rebuild/redeploy to populate it; no SQL migration is required. Dates are UTC
 RFC3339; metadata absent from other launch methods uses dev/unknown defaults.
 Metadata is public, so DEPLOYED_BY should be a public team or CI label.
+
+## Persistent non-prod application logs (2026-11-14)
+
+Non-prod deployment bind-mounts LOG_DIR (default
+/home/ssmuser/apps/logs/mobile-api/non-prod) and sets LOG_FILE=/app/logs/api.log.
+JSON application events go to stdout and a persistent file with two rotating
+backups, approximately 10 MiB each. Redaction is unchanged. Runtime stderr and
+pre-logger failures remain Docker-only. Old Docker logs are not imported.
+The runtime user now has stable UID/GID 10001:10001. Deployment prepares a dedicated
+host directory (750), verifies app write access before replacing the container,
+and creates log files with mode 600. Rebuild/redeploy; no SQL migration required.
+Use a separate directory per app instance. Verify api.log after a request, then
+verify it remains after another deployment. Local tests check rotation, restart
+retention, JSON output, inaccessible paths and concurrent writes; live server
+mount permissions and disk capacity still require verification during rollout.
+
+LOG_DIR can now be set in the selected deployment env file without quotes. A
+non-empty shell override takes priority; absent/empty values use the default.
+The script reads only LOG_DIR as literal data and never sources the env file.
+LOG_FILE remains the container path /app/logs/api.log. Changing LOG_DIR requires
+redeployment and does not move existing logs to the new directory.
