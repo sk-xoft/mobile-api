@@ -90,9 +90,9 @@ func progress(code string) int {
 		return 2
 	case "DEPARTMENT_DOCUMENT_PICKUP":
 		return 3
-	case "DELIVERING":
+	case StatusDelivering:
 		return 4
-	case "DELIVERED":
+	case StatusDelivered:
 		return 5
 	}
 	return 0

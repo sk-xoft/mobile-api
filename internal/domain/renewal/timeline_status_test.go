@@ -15,7 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-const timelineStatusQuery = `SELECT t.actioned_at,COALESCE(t.note,'') FROM m_document_transaction t INNER JOIN m_document_status s ON s.document_status_code=t.to_status WHERE t.request_id=? AND s.document_mobile_status_code=? ORDER BY t.actioned_at DESC,t.id DESC LIMIT 1`
+const timelineStatusQuery = `SELECT t.actioned_at,COALESCE(t.note_mobile,'') FROM m_document_transaction t INNER JOIN m_document_status s ON s.document_status_code=t.to_status WHERE t.request_id=? AND s.document_mobile_status_code=? ORDER BY t.actioned_at DESC,t.id DESC LIMIT 1`
 
 func expectTimelineStatusOwner(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT r.id,r.request_no,.*WHERE r.request_no=\? AND r.mobile_user_uuid=\? AND r.is_active='YES'$`).
@@ -100,17 +100,16 @@ func TestTimelineStatusHandlerReturnsLatestEventAndBatchedItems(t *testing.T) {
 	}
 }
 
-func TestTimelineStatusWithoutHistoryKeepsItemsAndEmptyTimeline(t *testing.T) {
+func TestTimelineStatusWithoutHistoryReturnsEmptyItemsAndTimeline(t *testing.T) {
 	r, mock, closeDB := newMockRenewalRepository(t)
 	defer closeDB()
 	r.db.SetMaxOpenConns(1)
 	expectTimelineStatusOwner(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(timelineStatusQuery)).WithArgs("request-id", "DELIVERED").WillReturnError(sql.ErrNoRows)
-	expectTimelineStatusItems(mock)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	v, err := NewService(r).TimelineStatus(ctx, "owner", " 261000023 ", " delivered ")
-	if err != nil || v.Timeline != (StatusTimeline{}) || v.Items == nil || len(v.Items) != 4 || v.DocumentMobileStatusCode != "DELIVERED" {
+	if err != nil || v.Timeline != (StatusTimeline{}) || v.Items == nil || len(v.Items) != 0 || v.DocumentMobileStatusCode != "DELIVERED" {
 		t.Fatalf("response=%+v, error=%v", v, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -156,4 +155,35 @@ func TestTimelineStatusOwnershipAndQueryFailures(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestTimelineStatusNonReviewSkipsItems(t *testing.T) {
+	for _, code := range []string{"MARINE_DEPARTMENT_RESULT", "DEPARTMENT_DOCUMENT_PICKUP", "DELIVERING", "DELIVERED"} {
+		t.Run(code, func(t *testing.T) {
+			r, mock, closeDB := newMockRenewalRepository(t)
+			defer closeDB()
+			expectTimelineStatusOwner(mock)
+			at := time.Date(2026, 11, 14, 3, 48, 44, 0, time.FixedZone("Bangkok", 7*3600))
+			mock.ExpectQuery(regexp.QuoteMeta(timelineStatusQuery)).WithArgs("request-id", code).
+				WillReturnRows(sqlmock.NewRows([]string{"actioned_at", "note"}).AddRow(at, "Status note"))
+			v, err := NewService(r).TimelineStatus(context.Background(), "owner", "261000023", code)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var data map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data) != 4 || string(data["items"]) != "[]" || v.RequestNo != "261000023" || v.DocumentMobileStatusCode != code || v.Timeline.Note != "Status note" || v.Timeline.DateTime != "2026-11-14T03:48:44+07:00" {
+				t.Fatalf("unexpected response: %s", raw)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }

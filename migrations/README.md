@@ -7,7 +7,7 @@
   โดยคงชื่อและเนื้อหาต้นฉบับ ดูรายละเอียดแต่ละไฟล์ใน
   [คู่มือต้นทาง](legacy-mvp1/README.md)
 - `001_create_event_logs.sql`, `002_secure_auth.sql`,
-  `003_payment_attempts.sql`: migrations เพิ่มเติมของ Go API
+  `003_payment_attempts.sql`, `004_document_transaction_channel_notes.sql`: migrations เพิ่มเติมของ Go API
 - `legacy-mvp1/SHA256SUMS`: checksum ของไฟล์ต้นทางที่นำเข้า ตรวจสำเนาด้วย
   `cd migrations/legacy-mvp1 && shasum -a 256 -c SHA256SUMS`
 
@@ -61,6 +61,10 @@ SQL เฉพาะส่วนที่ขาด อย่าใช้ `--force
 | 1 | [001_create_event_logs.sql](001_create_event_logs.sql) | สร้างตารางสำหรับ synchronous request event logs |
 | 2 | [002_secure_auth.sql](002_secure_auth.sql) | หยุด API เดิมก่อนรัน; ยกเลิก sessions เดิมทั้งหมด ผู้ใช้ต้อง login ใหม่ |
 | 3 | [003_payment_attempts.sql](003_payment_attempts.sql) | หยุด payment writers เดิม; ตรวจ duplicate keys/provider charges ก่อน import ประวัติ CHARGE |
+| 4 | [004_document_transaction_channel_notes.sql](004_document_transaction_channel_notes.sql) | เพิ่ม note_mobile และ note_web แบบ TEXT NULL ใน m_document_transaction; เก็บ note เดิมและไม่ย้ายข้อมูล |
+
+`004_*` รันครั้งเดียวหลังมีตาราง `m_document_transaction` แล้ว คอลัมน์ใหม่ของ
+ประวัติเดิมเป็น NULL; ต้อง apply ก่อน deploy โค้ดที่อ่าน/เขียน note_mobile และ note_web ทั้ง Mobile Go และ Web Java; ไม่ backfill ข้อความเก่าอัตโนมัติ
 
 ดูข้อกำหนด client/link และ rollout ใน [MIGRATION.md](../MIGRATION.md)
 และ [payment rollout](../docs/payments.md#rollout-and-release-checks)

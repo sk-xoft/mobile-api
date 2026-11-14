@@ -262,6 +262,10 @@ actual legacy schema and an Omise test account before release; see the detailed
   reserves a new attempt before contacting Omise. A replacement needs a new key
   and a confirmed expired/failed previous attempt. An uncertain result blocks
   replacements and is reconciled without blindly creating another charge.
+  Reservation also checks for CHARGE ledger rows written by Spring Boot after
+  the one-time attempt migration. If a row has no matching attempt, it returns
+  `PAYMENT_RECONCILIATION_REQUIRED` before contacting Omise. Stop old payment
+  writers and reconcile those rows before switching checkout traffic to Go.
 - GET on the same path resumes the current payment. Existing transaction GET
   remains available. Responses add `serverTime`, `qrExpired`, `nextAction` and
   `retryAfterSeconds` and retain saved QR/provider details where usable.
@@ -374,3 +378,25 @@ Go keys from `.env.example` (including a Go-format `DATABASE_DSN`) before using
 database/storage/email integrations. The shared file was not modified, and no
 API instance or live integration was started during verification.
 No database migration or API contract change is required.
+
+
+## Timeline status conditional items (2026-11-14)
+
+The status-filtered timeline route preserves requestNo, documentMobileStatusCode,
+timeline (date_time/note), and items. Only DOCUMENT_REVIEW loads current items/files.
+The other four mobile statuses return items: [] and perform only the owned-request
+and latest-history reads. Ownership, validation and latest-note selection are unchanged.
+Regression tests cover all four non-review statuses, JSON shape, empty history,
+and the existing review item/file assembly. No schema change is required.
+
+
+## Channel-specific transaction notes (2026-11-14)
+
+Apply migrations/004_document_transaction_channel_notes.sql before deploying the
+updated Mobile Go and BOS Java APIs. CREATE, RESUBMIT, CANCEL and PAYMENT_SUCCESS
+write note_mobile and note_web alongside legacy note. BOS transaction actions also
+write both channel columns. Mobile timeline routes read only note_mobile (NULL
+returns empty text), never internal note/note_web. Existing response templates and
+DOCUMENT_REVIEW-only item assembly are retained. Historical rows are not backfilled.
+BOS reads note_web with a NULL-only fallback to legacy note; existing date/tracking
+metadata remains intact for Web consumers. No Web frontend contract change.

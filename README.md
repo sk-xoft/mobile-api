@@ -89,13 +89,24 @@ It stops if the file is missing or unreadable. To select that file explicitly:
 
 ```bash
 make dev ENV_FILE=/Users/sk/works/products/smartseaman.com/source-code/config/mobile-api/non-prod/.env
+
+```
+
+
+```bash
+
+make dev ENV_FILE=/Users/sarunyook/workspaces/products/smartseaman.com/source-code/config/mobile-api/non-prod/.env
+```
+```
+
+
 ```
 
 To use a repository-local `.env` or another configuration file:
 
 ```bash
 make dev ENV_FILE=.env
-make dev ENV_FILE=/Users/sk/works/products/smartseaman.com/source-code/config/mobile-api/non-prod/.env
+jjjjjjjj
 ```
 
 The default listen address is `:8080`; change it with `APP_ADDRESS`. Air rebuilds
@@ -156,3 +167,12 @@ codex resume 01a19082-58e1-7250-aee8-ad246969e55f
 codex resume 01a19082-58e1-7250-aee8-ad246969e55f
 
 ```
+
+# ดูว่าโปรเซสอะไรใช้ 8080 อยู่
+lsof -nP -iTCP:8080
+
+# หยุดทั้งหมดที่ใช้ 8080
+kill $(lsof -ti tcp:8080)
+
+# ถ้ายังไม่ยอมหยุด ให้บังคับปิด
+kill -9 $(lsof -ti tcp:8080)

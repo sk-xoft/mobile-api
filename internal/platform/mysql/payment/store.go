@@ -129,6 +129,16 @@ func (s *Store) Reserve(ctx context.Context, a domain.Attempt) (domain.Attempt, 
 			return a, false, domain.Conflict("PAYMENT_IN_PROGRESS")
 		}
 	}
+	// Spring Boot can still have written a charge after the one-time attempt
+	// migration. Never create another Omise charge for an unimported ledger row.
+	var unimported int
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM m_payment_transaction p LEFT JOIN mobile_payment_attempts a ON a.id=p.id WHERE p.request_id=? AND p.transaction_type='CHARGE' AND a.id IS NULL`, a.RequestID).Scan(&unimported)
+	if err != nil {
+		return a, false, err
+	}
+	if unimported > 0 {
+		return a, false, domain.Conflict("PAYMENT_RECONCILIATION_REQUIRED")
+	}
 	var incomplete int
 	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM m_document_request_items i INNER JOIN m_document_master_request_item m ON m.document_master_items_code=i.document_master_request_item_code WHERE i.request_id=? AND m.storage_scope='REQUEST' AND NOT EXISTS (SELECT 1 FROM m_document_request_item_files f WHERE f.request_item_id=i.id AND f.file_uploaded=1 AND (f.check_result IS NULL OR f.check_result<>'fix'))`, a.RequestID).Scan(&incomplete)
 	if err != nil {
@@ -284,7 +294,7 @@ func (s *Store) Apply(ctx context.Context, a domain.Attempt, c domain.Charge) er
 				if _, err = tx.ExecContext(ctx, "UPDATE m_document_request SET document_status_id=?,updated_at=NOW() WHERE id=?", nextStatus, a.RequestID); err != nil {
 					return err
 				}
-				if _, err = tx.ExecContext(ctx, `INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by) VALUES(?,?,'PAYMENT_SUCCESS','PAYMENT_PENDING','PENDING_DOCUMENT_REVIEW','Payment completed',?)`, uuid.NewString(), a.RequestID, req.UserID); err != nil {
+				if _, err = tx.ExecContext(ctx, `INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,note_mobile,note_web,actioned_by) VALUES(?,?,'PAYMENT_SUCCESS','PAYMENT_PENDING','PENDING_DOCUMENT_REVIEW','Payment completed','ชำระเงินสำเร็จ รอเจ้าหน้าที่ตรวจสอบเอกสาร','Payment completed',?)`, uuid.NewString(), a.RequestID, req.UserID); err != nil {
 					return err
 				}
 			} else {

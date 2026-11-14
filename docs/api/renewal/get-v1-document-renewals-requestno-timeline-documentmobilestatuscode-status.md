@@ -1,6 +1,6 @@
 # GET /v1/document-renewals/:requestNo/timeline/:documentMobileStatusCode/status
 
-ประวัติล่าสุดของ mobile status พร้อมรายการเอกสารและไฟล์ปัจจุบัน
+ประวัติล่าสุดของ mobile status พร้อมรายการเอกสารและไฟล์ปัจจุบันเฉพาะ DOCUMENT_REVIEW
 
 ## Overview
 
@@ -32,9 +32,9 @@ GET /v1/document-renewals/261000023/timeline/DOCUMENT_REVIEW/status
    `m_document_status.document_status_code` แล้วกรอง `document_mobile_status_code`
 3. เลือก transaction ล่าสุด เรียง `actioned_at DESC, id DESC LIMIT 1`
    หลาย internal statuses ที่ map เป็น mobile status เดียวกันรวมอยู่ในการค้นนี้
-4. คืน `timeline.date_time` จาก `actioned_at` แบบ RFC3339 และ `note` จาก transaction
-   ถ้ายังไม่มีประวัติที่ตรง คืนทั้งสอง field เป็น `""` แต่ยังคืน items
-5. โหลด items ด้วยตัวประกอบข้อมูลร่วมกับ validate-and-create:
+4. คืน `timeline.date_time` จาก `actioned_at` แบบ RFC3339 และ `note` จาก transaction.note_mobile
+   ถ้ายังไม่มีประวัติที่ตรง คืนทั้งสอง field เป็น `""` แต่ยังคืน items เฉพาะ DOCUMENT_REVIEW; สถานะอื่นคืน []
+5. เฉพาะ DOCUMENT_REVIEW โหลด items ด้วยตัวประกอบข้อมูลร่วมกับ validate-and-create:
    เรียง master `sort_order`, request-item ID และอ่านไฟล์แบบ batch แยก PROFILE/REQUEST
 6. คำนวณ `MISSING`, `NEED_FIX`, `INCOMPLETE`, `COMPLETE` ตาม completion rules เดิม
    ID_CARD ครบ MAIN หรือ FRONT+BACK; PASSPORT/GENERAL ครบ MAIN
@@ -55,7 +55,7 @@ GET /v1/document-renewals/261000023/timeline/DOCUMENT_REVIEW/status
 | `m_document_request_item_files` | READ | uploaded REQUEST files ของคำขอ |
 
 Query path: `ownedRequest` → latest transaction → `requestItems` → `validateFilesBatch`
-เมื่อสำเร็จใช้ domain queries 4–5 ครั้งตามจำนวน scopes; PROFILE และ REQUEST ใช้ไม่เกิน
+DOCUMENT_REVIEW ใช้ domain queries 4–5 ครั้งตามจำนวน scopes; สถานะอื่นใช้ 2 ครั้ง; PROFILE และ REQUEST ใช้ไม่เกิน
 scope ละหนึ่ง file query ไม่ขึ้นกับจำนวน items ตัวเลขนี้ไม่รวม Authenticate/event logging
 และไม่ใช่ผลวัด latency
 
@@ -129,7 +129,7 @@ HTTP 200 ใช้ MA envelope เดิม; `data` เป็น
 | 400 | MA00004 | ขาด common header |
 | 400 | MA00005 | requestNo/mobile status ไม่ถูกต้อง |
 | 400 | MA00016 | ไม่พบคำขอ, ไม่ใช่เจ้าของ หรือคำขอ inactive |
-| 400 | MA00013 | คำขอไม่มี request items ซึ่งเป็น configuration error |
+| 400 | MA00013 | DOCUMENT_REVIEW: คำขอไม่มี request items ซึ่งเป็น configuration error |
 | 401 | ตาม authentication mapping | JWT/session/account ใช้งานไม่ได้ |
 | 500 | MA00013 | อ่าน history/items/files ล้มเหลว |
 
@@ -145,3 +145,14 @@ HTTP 200 ใช้ MA envelope เดิม; `data` เป็น
 ใช้ handler + SQL mocks ตรวจ response, filters, mixed-scope batching, validation,
 not-found, history errors, empty history และ one-connection pool
 ยังไม่ได้เรียก API ที่เปิดอยู่หรืออ่าน/เขียน live MySQL
+
+## Conditional items (2026-11-14)
+
+คง response template เดิมทุกสถานะ: requestNo, documentMobileStatusCode,
+timeline.date_time, timeline.note และ items
+โหลด items/files เฉพาะเมื่อ path status เป็น DOCUMENT_REVIEW
+อีก 4 สถานะคืน items: [] เสมอ (ไม่ใช่ null และไม่ omit) โดยไม่ query items/files
+สถานะเหล่านี้ใช้ domain reads 2 ครั้ง: ownedRequest และ latest transaction
+กติกา latest event, note, empty history, validation และ ownership คงเดิม
+
+Mobile timeline note อ่านจาก note_mobile เท่านั้น; NULL คืนข้อความว่าง ไม่ fallback ไป note หรือ note_web ต้อง apply migration 004 ก่อน deploy

@@ -42,6 +42,7 @@ func TestReserveSerializesWithRequestLockAndOneConnection(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(attemptSQL)+"a.request_id").WithArgs("request", "key").WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec("INSERT INTO mobile_payment_request_state").WithArgs("request").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery("SELECT active_attempt_id,paid_attempt_id,review_required.*FOR UPDATE").WithArgs("request").WillReturnRows(sqlmock.NewRows([]string{"active", "paid", "review"}).AddRow(nil, nil, false))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM m_payment_transaction p LEFT JOIN mobile_payment_attempts").WithArgs("request").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM m_document_request_items").WithArgs("request").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec("INSERT INTO mobile_payment_attempts").WithArgs(a.ID, a.No, a.RequestID, a.Key, a.Fingerprint, a.Reference, a.Amount, sqlmock.AnyArg(), a.CreatedAt).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE mobile_payment_request_state SET active_attempt_id").WithArgs("attempt", "request").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -49,6 +50,30 @@ func TestReserveSerializesWithRequestLockAndOneConnection(t *testing.T) {
 	_, created, err := NewStore(db).Reserve(ctx, a)
 	if err != nil || !created {
 		t.Fatalf("created=%v,error=%v", created, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestReserveRejectsUnimportedSpringPayment(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	a := fixture()
+	mock.ExpectBegin()
+	mockRequest(mock)
+	mock.ExpectQuery(regexp.QuoteMeta(attemptSQL)+"a.request_id").WithArgs("request", "key").WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec("INSERT INTO mobile_payment_request_state").WithArgs("request").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("SELECT active_attempt_id,paid_attempt_id,review_required.*FOR UPDATE").WithArgs("request").WillReturnRows(sqlmock.NewRows([]string{"active", "paid", "review"}).AddRow(nil, nil, false))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM m_payment_transaction p LEFT JOIN mobile_payment_attempts").WithArgs("request").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectRollback()
+	_, created, err := NewStore(db).Reserve(context.Background(), a)
+	var conflict *domain.Error
+	if created || !errors.As(err, &conflict) || conflict.Code != "PAYMENT_RECONCILIATION_REQUIRED" {
+		t.Fatalf("created=%v, error=%v", created, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -98,7 +123,7 @@ func TestApplySuccessCommitsLedgerRequestAndTimelineTogether(t *testing.T) {
 			mock.ExpectQuery("SELECT paid_attempt_id,review_required.*FOR UPDATE").WithArgs("request").WillReturnRows(sqlmock.NewRows([]string{"paid", "review"}).AddRow(nil, false))
 			mock.ExpectQuery("SELECT id FROM m_document_status").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("review-status"))
 			mock.ExpectExec("UPDATE m_document_request SET document_status_id").WithArgs("review-status", "request").WillReturnResult(sqlmock.NewResult(0, 1))
-			timeline := mock.ExpectExec("INSERT INTO m_document_transaction").WithArgs(sqlmock.AnyArg(), "request", "owner")
+			timeline := mock.ExpectExec("INSERT INTO m_document_transaction.*note_mobile,note_web.*ชำระเงินสำเร็จ รอเจ้าหน้าที่ตรวจสอบเอกสาร").WithArgs(sqlmock.AnyArg(), "request", "owner")
 			if failTimeline {
 				timeline.WillReturnError(errors.New("timeline failed"))
 				mock.ExpectRollback()

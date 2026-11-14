@@ -935,7 +935,7 @@ Source: [timeline_status.go](../../internal/domain/renewal/timeline_status.go)
 | JSON field | Type | Serialization |
 |---|---|---|
 | `date_time` | string | actioned_at แบบ RFC3339; ว่างเมื่อไม่มี matching event |
-| `note` | string | ว่างเมื่อไม่มี note/event |
+| `note` | string | note_mobile; ว่างเมื่อ NULL หรือไม่มี event ไม่ fallback ไปข้อความภายใน |
 
 ## renewal.TimelineStatusResponse
 
@@ -946,4 +946,4 @@ Source: [timeline_status.go](../../internal/domain/renewal/timeline_status.go)
 | `requestNo` | string | ส่งเสมอ |
 | `documentMobileStatusCode` | string | normalized mobile status |
 | `timeline` | [renewal.StatusTimeline](SCHEMAS.md#renewalstatustimeline) | object; ส่งเสมอ |
-| `items` | array of [renewal.ValidateItem](SCHEMAS.md#renewalvalidateitem) | current items/files; ส่งเสมอ |
+| `items` | array of [renewal.ValidateItem](SCHEMAS.md#renewalvalidateitem) | current items/files เฉพาะ DOCUMENT_REVIEW; สถานะอื่นเป็น []; ส่งเสมอ |

@@ -210,7 +210,7 @@ SELECT id FROM m_document_status WHERE document_status_code=? AND is_active='YES
 Source: [internal/domain/renewal/lifecycle.go:591](../../../internal/domain/renewal/lifecycle.go#L591)
 
 ```sql
-SELECT action,from_status,to_status,note,actioned_at FROM m_document_transaction WHERE request_id=? ORDER BY actioned_at
+SELECT action,from_status,to_status,COALESCE(note_mobile,''),actioned_at FROM m_document_transaction WHERE request_id=? ORDER BY actioned_at
 ```
 
 ## renewal.transition
@@ -230,7 +230,7 @@ UPDATE m_document_request SET document_status_id=?,is_resubmit=CASE WHEN ?='RESU
 ```
 
 ```sql
-INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by) VALUES(?,?,?,?,?,?,?)
+INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,note_mobile,note_web,actioned_by) VALUES(?,?,?,?,?,?,?,?,?)
 ```
 
 ## renewal.updateMobile
@@ -274,7 +274,7 @@ INSERT INTO m_document_request_items(id,request_id,request_no,document_master_re
 ```
 
 ```sql
-INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by) VALUES(?,?,?,?,?,?,?)
+INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,note_mobile,note_web,actioned_by) VALUES(?,?,?,?,?,?,?,?,?)
 ```
 
 ## renewal.validateExisting
@@ -324,8 +324,10 @@ SELECT i.id,COALESCE(p.id,''),m.document_master_items_code,m.storage_scope,COALE
 
 Source: [timeline_status.go](../../../internal/domain/renewal/timeline_status.go)
 
-Calls `ownedRequest`, selects the latest matching transaction, then `requestItems`.
+Calls `ownedRequest`, selects the latest matching transaction, then `requestItems` only for DOCUMENT_REVIEW. Other mobile statuses return items: [] without item/file queries.
 
 ```sql
-SELECT t.actioned_at,COALESCE(t.note,'') FROM m_document_transaction t INNER JOIN m_document_status s ON s.document_status_code=t.to_status WHERE t.request_id=? AND s.document_mobile_status_code=? ORDER BY t.actioned_at DESC,t.id DESC LIMIT 1
+SELECT t.actioned_at,COALESCE(t.note_mobile,'') FROM m_document_transaction t INNER JOIN m_document_status s ON s.document_status_code=t.to_status WHERE t.request_id=? AND s.document_mobile_status_code=? ORDER BY t.actioned_at DESC,t.id DESC LIMIT 1
 ```
+
+Mobile timeline note อ่านจาก note_mobile เท่านั้น; NULL คืนข้อความว่าง ไม่ fallback ไป note หรือ note_web ต้อง apply migration 004 ก่อน deploy

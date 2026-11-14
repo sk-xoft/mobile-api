@@ -67,7 +67,7 @@ func (s *Service) Resubmit(ctx context.Context, userID, no string) (TransitionRe
 	if err != nil {
 		return TransitionResponse{}, err
 	}
-	if row.StatusCode != "PENDING_APPLICANT_CORRECTION" {
+	if row.StatusCode != StatusPendingApplicantCorrection {
 		return TransitionResponse{}, &BusinessError{Code: "MA00005", Detail: "documentStatus"}
 	}
 	fixCount, err := s.repository.countFixItems(ctx, row.ID)
@@ -87,17 +87,17 @@ func (s *Service) Resubmit(ctx context.Context, userID, no string) (TransitionRe
 	if err := s.repository.resetFixItems(ctx, row.ID); err != nil {
 		return TransitionResponse{}, err
 	}
-	return s.repository.transition(ctx, userID, no, "PENDING_DOCUMENT_REVIEW", "RESUBMIT")
+	return s.repository.transition(ctx, userID, no, StatusPendingDocumentReview, "RESUBMIT")
 }
 func (s *Service) DeleteRequest(ctx context.Context, userID, no string) (TransitionResponse, error) {
 	row, err := s.repository.ownedRequest(ctx, userID, "request_no", no)
 	if err != nil {
 		return TransitionResponse{}, err
 	}
-	if row.StatusCode != "PAYMENT_PENDING" {
+	if row.StatusCode != StatusPaymentPending {
 		return TransitionResponse{}, &BusinessError{Code: "MA00005", Detail: "documentStatus"}
 	}
-	return s.repository.transition(ctx, userID, no, "CANCELLED", "CANCEL")
+	return s.repository.transition(ctx, userID, no, StatusCancelled, "CANCEL")
 }
 func (s *Service) UpdateMobile(ctx context.Context, userID, no, mobile string) (TransitionResponse, error) {
 	if len(mobile) != 10 || mobile[0] != '0' {

@@ -97,7 +97,7 @@ func TestRenewalRepositoryListDetailTimeline(t *testing.T) {
 	}
 
 	expectOwnedRequest(mock, "request_no", "260100001", "user-1")
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT action,from_status,to_status,note,actioned_at")).WithArgs("request-1").
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT action,from_status,to_status,COALESCE(note_mobile,''),actioned_at")).WithArgs("request-1").
 		WillReturnRows(sqlmock.NewRows([]string{"action", "from_status", "to_status", "note", "actioned_at"}).AddRow("CREATE", "", "PAYMENT_PENDING", "created", when))
 	timeline, err := r.timeline(context.Background(), "user-1", "260100001")
 	if err != nil || len(timeline.Items) != 1 || timeline.Items[0].Action != "CREATE" {

@@ -204,7 +204,7 @@ func (r *Repository) create(ctx context.Context, userID string, req CreateReques
 	if e := r.db.QueryRowContext(ctx, "SELECT MOBILE_NUMBER,EMAIL FROM m_mobile_users WHERE MOBILE_UUID=?", userID).Scan(&mobile, &email); e != nil {
 		return CreateResponse{}, e
 	}
-	statusID, e := r.statusID(ctx, "PAYMENT_PENDING")
+	statusID, e := r.statusID(ctx, StatusPaymentPending)
 	if e != nil {
 		return CreateResponse{}, e
 	}
@@ -226,7 +226,7 @@ func (r *Repository) create(ctx context.Context, userID string, req CreateReques
 	if e != nil {
 		return CreateResponse{}, e
 	}
-	return CreateResponse{RequestID: id, RequestNo: no, DocumentCode: strings.ToUpper(strings.TrimSpace(req.DocumentCode)), Status: "PAYMENT_PENDING", Amount: price.Total, DeliveryAddressID: req.DeliveryAddressID}, nil
+	return CreateResponse{RequestID: id, RequestNo: no, DocumentCode: strings.ToUpper(strings.TrimSpace(req.DocumentCode)), Status: StatusPaymentPending, Amount: price.Total, DeliveryAddressID: req.DeliveryAddressID}, nil
 }
 
 func (r *Repository) documentInfo(ctx context.Context, code string) (string, string, string, error) {
@@ -393,7 +393,7 @@ func (r *Repository) validateCreate(ctx context.Context, userID, code, idempoten
 	if err := r.db.QueryRowContext(ctx, "SELECT MOBILE_NUMBER,EMAIL FROM m_mobile_users WHERE MOBILE_UUID=?", userID).Scan(&mobile, &email); err != nil {
 		return ValidateResponse{}, err
 	}
-	statusID, err := r.statusID(ctx, "PAYMENT_PENDING")
+	statusID, err := r.statusID(ctx, StatusPaymentPending)
 	if err != nil {
 		return ValidateResponse{}, err
 	}
@@ -445,7 +445,7 @@ func (r *Repository) validateCreate(ctx context.Context, userID, code, idempoten
 	if _, err = tx.ExecContext(ctx, `INSERT INTO m_document_request_items(id,request_id,request_no,document_master_request_item_code,approve_status) SELECT UUID(),?,?,document_master_request_item_code,'PENDING' FROM m_document_setting_requires WHERE document_code=? AND is_required=1 AND is_active='YES'`, id, requestNo, code); err != nil {
 		return ValidateResponse{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by) VALUES(?,?,?,?,?,?,?)`, uuid.NewString(), id, "CREATE", nil, "PAYMENT_PENDING", "Unpaid draft created", userID); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,note_mobile,note_web,actioned_by) VALUES(?,?,?,?,?,?,?,?,?)`, uuid.NewString(), id, "CREATE", nil, StatusPaymentPending, "Unpaid draft created", "รอชำระเงิน", "Unpaid draft created", userID); err != nil {
 		return ValidateResponse{}, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -529,7 +529,7 @@ func (r *Repository) transition(ctx context.Context, userID, requestNo, to, acti
 	if action == "CANCEL" {
 		note = "Renewal request deleted by applicant"
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,actioned_by) VALUES(?,?,?,?,?,?,?)", uuid.NewString(), row.ID, action, row.StatusCode, to, note, userID); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO m_document_transaction(id,request_id,action,from_status,to_status,note,note_mobile,note_web,actioned_by) VALUES(?,?,?,?,?,?,?,?,?)", uuid.NewString(), row.ID, action, row.StatusCode, to, note, mobileTransactionNote(action), note, userID); err != nil {
 		return TransitionResponse{}, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -593,7 +593,7 @@ func (r *Repository) timeline(ctx context.Context, userID, no string) (Timeline,
 	if e != nil {
 		return Timeline{}, e
 	}
-	rows, e := r.db.QueryContext(ctx, "SELECT action,from_status,to_status,note,actioned_at FROM m_document_transaction WHERE request_id=? ORDER BY actioned_at", row.ID)
+	rows, e := r.db.QueryContext(ctx, "SELECT action,from_status,to_status,COALESCE(note_mobile,''),actioned_at FROM m_document_transaction WHERE request_id=? ORDER BY actioned_at", row.ID)
 	if e != nil {
 		return Timeline{}, e
 	}
@@ -708,4 +708,16 @@ func (r *Repository) hardDelete(ctx context.Context, requestNo string) (Transiti
 		return TransitionResponse{}, err
 	}
 	return TransitionResponse{RequestNo: row.No, FromStatus: row.StatusCode, ToStatus: "DELETED", Action: "HARD_DELETE"}, nil
+}
+
+// Mobile notes never fall back to internal/legacy transaction text.
+func mobileTransactionNote(action string) string {
+	switch action {
+	case "RESUBMIT":
+		return "ส่งเอกสารแก้ไขเรียบร้อยแล้ว รอเจ้าหน้าที่ตรวจสอบ"
+	case "CANCEL":
+		return "ยกเลิกคำขอเรียบร้อยแล้ว"
+	default:
+		return ""
+	}
 }

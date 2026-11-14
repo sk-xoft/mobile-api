@@ -110,7 +110,7 @@ func TestValidateCreateAvoidsDuplicateReadsAndUsesOneConnection(t *testing.T) {
 	mock.ExpectQuery("SELECT last_number.*FOR UPDATE").WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"number"}).AddRow(1))
 	mock.ExpectExec("INSERT INTO m_document_request\\(").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "owner", "0812345678", "crew@example.com", "DOC001", "status", "DOC001", nil, 180.0, "idem").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("INSERT INTO m_document_request_items").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "DOC001").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("INSERT INTO m_document_transaction").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "CREATE", nil, "PAYMENT_PENDING", "Unpaid draft created", "owner").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO m_document_transaction").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "CREATE", nil, "PAYMENT_PENDING", "Unpaid draft created", "รอชำระเงิน", "Unpaid draft created", "owner").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 	mock.ExpectQuery("SELECT CERT_END_DATE").WithArgs("owner", "DOC001").WillReturnRows(sqlmock.NewRows([]string{"end"}).AddRow(nil))
 	mock.ExpectQuery("SELECT a.id,a.first_name").WithArgs(sqlmock.AnyArg(), "owner").WillReturnRows(validateAddressRows()).RowsWillBeClosed()
